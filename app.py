@@ -447,60 +447,93 @@ def main():
                 ["📤 Cargar Contrato", "✏️ Editor de Borrador", "🗂️ Historial de Versiones"]
             )
 
-            # --- TAB 1: Biblioteca de Google Drive (Drive-First) ---
+            # --- TAB 1: Biblioteca de Google Drive (Drive-First) con Fallback Local ---
             with tab_upload:
-                st.subheader("☁️ Biblioteca de Contratos (Google Drive)")
-                st.write("Busca y selecciona un contrato directamente desde la nube de Unergy.")
+                from utils.drive_manager import get_drive_service
+                drive_active = get_drive_service() is not None
 
-                # Search Interface
-                search_col1, search_col2 = st.columns([3, 1])
-                with search_col1:
-                    drive_query = st.text_input("🔍 Nombre del documento", placeholder="Ej: PPA-GranjaSolar", key="drive_lib_query")
-                with search_col2:
-                    if st.button("Buscar en Biblioteca", use_container_width=True):
-                        with st.spinner("Conectando con Google Drive..."):
-                            results = search_documents(query=drive_query)
-                            st.session_state['lib_search_results'] = results
+                if not drive_active:
+                    st.warning("⚠️ **Conexión a Drive no configurada.**")
+                    st.info("Para este demo, puedes usar la **Carga Local** mientras configuras tus credenciales de Google.")
+                    
+                    # Fallback: Local File Uploader
+                    up = st.file_uploader(
+                        "📂 Cargar contrato desde este computador",
+                        type=["pdf", "docx"],
+                        key="emergency_uploader"
+                    )
+                    
+                    if up:
+                        from utils.file_parser import extract_text_from_file
+                        import io
+                        with st.spinner("Procesando archivo local..."):
+                            file_bytes = up.read()
+                            text = extract_text_from_file(io.BytesIO(file_bytes), up.name)
 
-                        # Feature 4: guardar versión original intocable
-                        if up.name not in st.session_state.doc_versions:
-                            st.session_state.doc_versions[up.name] = {
-                                "original": text,
-                                "draft": text,
-                                "history": []
-                            }
-                            # Auto-indexar en RAG (Bug 1 fix)
-                            with st.spinner("Indexando en JuanMita..."):
+                            if text and not text.startswith("Error"):
+                                # Store in session
+                                st.session_state.doc_versions[up.name] = {
+                                    "original": text,
+                                    "draft": text,
+                                    "history": []
+                                }
+                                # Auto-index (JuanMa)
                                 ok, msg = st.session_state.chatbot.vector_ingest(
-                                    text, up.name, {"file_type": up.name.split(".")[-1]}
+                                    text, up.name, {"source": "local_upload"}
                                 )
-                            st.info(msg)
-                        else:
-                            st.info("Este documento ya estaba indexado. Ve a ✏️ Editor para editarlo.")
+                                if ok:
+                                    st.success(f"✅ **{up.name}** cargado e indexado con éxito.")
+                                    st.balloons()
+                                    st.rerun()
+                                else:
+                                    st.error(f"Error en indexación: {msg}")
+                else:
+                    # Original Drive-First UI
+                    st.subheader("☁️ Biblioteca de Contratos (Google Drive)")
+                    st.write("Busca y selecciona un contrato directamente desde la nube de Unergy.")
 
-                    if st.button("🚀 Cargar e Indexar en JuanMita", type="primary"):
-                        with st.spinner(f"Descargando e indexando {selected_file['name']}..."):
-                            # 1. Fetch from Drive
-                            file_bytes = fetch_document(selected_file['id'])
-                            
-                            if file_bytes:
-                                # 2. Extract Text
-                                from utils.file_parser import extract_text_from_file
-                                import io
-                                text = extract_text_from_file(io.BytesIO(file_bytes), selected_file['name'])
+                    # Search Interface
+                    search_col1, search_col2 = st.columns([3, 1])
+                    with search_col1:
+                        drive_query = st.text_input("🔍 Nombre del documento", placeholder="Ej: PPA-GranjaSolar", key="drive_lib_query")
+                    with search_col2:
+                        if st.button("Buscar en Biblioteca", use_container_width=True):
+                            with st.spinner("Conectando con Google Drive..."):
+                                from utils.drive_manager import search_documents
+                                try:
+                                    results = search_documents(query=drive_query)
+                                    st.session_state['lib_search_results'] = results
+                                except Exception as e:
+                                    st.error(f"Error: {e}")
 
-                        # Análisis automático con JuanMita
-                        if st.button("🔍 Analizar riesgos con JuanMita"):
-                            with st.spinner("JuanMita analizando el contrato..."):
-                                analysis = st.session_state.chatbot.ask_question(
-                                    f"Analiza los riesgos, obligaciones principales, partes y fechas clave del contrato '{up.name}'. "
-                                    "Usa el sistema de semáforo para clasificar los riesgos.",
-                                    filter_metadata={"source": up.name}
-                                )
-                            st.markdown("### 📋 Análisis de Riesgos")
-                            st.markdown(analysis)
+                    # Results and Selection
+                    results = st.session_state.get('lib_search_results', [])
+                    if results:
+                        options_map = {f"{f['name']} ({f.get('modifiedTime','')[:10]})": f for f in results}
+                        selected_label = st.selectbox("Selecciona un documento para procesar:", list(options_map.keys()))
+                        selected_file = options_map[selected_label]
+
+                        if st.button("🚀 Cargar e Indexar en JuanMita", type="primary"):
+                            with st.spinner(f"Descargando e indexando {selected_file['name']}..."):
+                                from utils.drive_manager import fetch_document
+                                file_bytes = fetch_document(selected_file['id'])
+                                if file_bytes:
+                                    from utils.file_parser import extract_text_from_file
+                                    import io
+                                    text = extract_text_from_file(io.BytesIO(file_bytes), selected_file['name'])
+                                    if text and not text.startswith("Error"):
+                                        st.session_state.doc_versions[selected_file['name']] = {
+                                            "original": text, "draft": text, "history": []
+                                        }
+                                        ok, msg = st.session_state.chatbot.vector_ingest(
+                                            text, selected_file['name'], {"id": selected_file['id'], "source": "drive"}
+                                        )
+                                        if ok:
+                                            st.success(f"✅ **{selected_file['name']}** cargado e indexado.")
+                                            st.rerun()
                     else:
-                        st.info("Ingresa un nombre arriba para buscar documentos en la biblioteca de Unergy.")
+                        if drive_query: st.warning("No se encontraron resultados.")
+                        else: st.info("Usa el buscador para cargar desde Drive.")
 
 
             # --- TAB 2: Editor de borrador (Feature 4) ---
