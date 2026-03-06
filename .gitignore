@@ -1,0 +1,30 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+env/
+.env
+
+# Streamlit
+.streamlit/
+secrets.toml
+
+# Google APIs / Credentials (CRITICAL)
+credentials.json
+token.json
+client_secret.json
+
+# IDE
+.vscode/
+.idea/
+
+# DB
+chroma_db/
+*.db
+*.sqlite3
+
+# Agent
+.agent_logs/
