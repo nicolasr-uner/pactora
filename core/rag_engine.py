@@ -97,7 +97,7 @@ Pregunta del analista legal:
 
 Responde de manera estructurada y profesional:
 """
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = genai.GenerativeModel('gemini-2.0-flash')
         response = model.generate_content(prompt)
         return response.text
         

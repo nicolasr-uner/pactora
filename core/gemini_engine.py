@@ -71,7 +71,7 @@ def process_contract(content: str, contract_type: str) -> dict:
         return {"error": "GEMINI_API_KEY environment variable not set."}
         
     try:
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = genai.GenerativeModel('gemini-2.0-flash')
         
         prompt = get_extraction_prompt(contract_type)
         full_prompt = prompt + "\n\n" + content

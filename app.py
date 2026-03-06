@@ -1,95 +1,163 @@
+import sys
+
+# Fix: Python 3.14 PEP 649 breaks pydantic v1 metaclass annotation reading.
+if sys.version_info >= (3, 14):
+    import pydantic.v1.main as _pv1m
+    _orig_metaclass_new = _pv1m.ModelMetaclass.__new__
+    def _patched_metaclass_new(mcs, name, bases, namespace, **kwargs):
+        if '__annotate_func__' in namespace and '__annotations__' not in namespace:
+            try:
+                namespace['__annotations__'] = namespace['__annotate_func__'](1)
+            except Exception:
+                pass
+        return _orig_metaclass_new(mcs, name, bases, namespace, **kwargs)
+    _pv1m.ModelMetaclass.__new__ = _patched_metaclass_new
+
 import streamlit as st
 import os
+import copy
 
 # --- HELPER FUNCTIONS ---
+
 def render_side_chat_panel(panel_col):
-    """Renderiza el chatbot contextual en una columna lateral derecha."""
+    """Chatbot contextual en columna lateral."""
     with panel_col:
         st.markdown(f"""
-        <div style="background: white; padding: 20px; border-radius: 20px; box-shadow: -5px 0 15px rgba(0,0,0,0.05); height: 85vh; border-left: 2px solid #915BD8;">
-            <h3 style="color: #2C2039; margin-top: 0;">🧠 JuanMa Contextual</h3>
-            <p style="font-size: 0.8em; color: #915BD8;"><b>Documento:</b> {st.session_state.get('sidebar_chat_title', 'Contexto')}</p>
+        <div style="background:white; padding:16px; border-radius:16px;
+             box-shadow:-4px 0 12px rgba(0,0,0,0.05); border-left:3px solid #915BD8;">
+            <h4 style="color:#2C2039; margin:0 0 4px 0;">🧠 JuanMa Contextual</h4>
+            <p style="font-size:0.75em; color:#915BD8; margin:0;">
+                <b>Contexto:</b> {st.session_state.get('sidebar_chat_title','Workspace')}
+            </p>
         </div>
         """, unsafe_allow_html=True)
-        
-        # Historial del chat lateral
-        chat_container = st.container(height=500)
+
+        chat_container = st.container(height=480)
         with chat_container:
             if 'sidebar_chat_history' not in st.session_state:
                 st.session_state.sidebar_chat_history = []
             for msg in st.session_state.sidebar_chat_history:
-                with st.chat_message(msg['role'], avatar="🤖" if msg['role'] == "assistant" else None):
+                avatar = "🤖" if msg['role'] == "assistant" else None
+                with st.chat_message(msg['role'], avatar=avatar):
                     st.markdown(msg['content'])
 
-        # Input
-        user_input = st.chat_input("Pregunta sobre este archivo...", key="side_panel_input")
+        user_input = st.chat_input("Pregunta sobre este documento...", key="side_panel_input")
         if user_input:
             st.session_state.sidebar_chat_history.append({"role": "user", "content": user_input})
             st.rerun()
 
-        # Respuesta diferida para mostrar el mensaje de carga en el contenedor correcto
-        if st.session_state.sidebar_chat_history and st.session_state.sidebar_chat_history[-1]["role"] == "user":
-            last_query = st.session_state.sidebar_chat_history[-1]["content"]
+        if (st.session_state.sidebar_chat_history
+                and st.session_state.sidebar_chat_history[-1]["role"] == "user"):
+            last_q = st.session_state.sidebar_chat_history[-1]["content"]
             with chat_container:
                 with st.chat_message("assistant", avatar="🤖"):
-                    with st.spinner("Analizando..."):
+                    with st.spinner("Analizando contrato..."):
                         filter_meta = st.session_state.get('sidebar_chat_filter')
-                        ans = st.session_state.chatbot.ask_question(last_query, filter_metadata=filter_meta)
+                        ans = st.session_state.chatbot.ask_question(last_q, filter_metadata=filter_meta)
                         st.markdown(ans)
             st.session_state.sidebar_chat_history.append({"role": "assistant", "content": ans})
             st.rerun()
 
-        if st.button("Cerrar Chat IA", use_container_width=True):
+        if st.button("✕ Cerrar", use_container_width=True):
             st.session_state.sidebar_chat_open = False
             st.rerun()
 
+
 def main():
     st.set_page_config(page_title="Pactora CLM - Unergy", layout="wide")
-    
-    # --- SESSION STATE INITIALIZATION ---
+
+    # --- IMPORTS ---
+    from core.rag_chatbot import RAGChatbot
+
+    # --- SESSION STATE ---
     if 'gemini_api_key' not in st.session_state:
         st.session_state.gemini_api_key = st.secrets.get("GEMINI_API_KEY", "")
-        
+
     if 'chatbot' not in st.session_state:
-        from core.rag_chatbot import RAGChatbot
         st.session_state.chatbot = RAGChatbot(api_key=st.session_state.gemini_api_key)
 
     if 'current_folder_id' not in st.session_state:
-        st.session_state.current_folder_id = st.session_state.get('drive_root_id', "1sF8_SuiiFdiWq_9htA-cNZP1Gp0djc4N")
+        st.session_state.current_folder_id = "1sF8_SuiiFdiWq_9htA-cNZP1Gp0djc4N"
     if 'folder_history' not in st.session_state:
         st.session_state.folder_history = [(st.session_state.current_folder_id, "Raíz Pactora")]
     if 'sidebar_chat_open' not in st.session_state:
         st.session_state.sidebar_chat_open = False
-    
-    # --- STYLES ---
+    # Bug 2 fix: nav persiste entre reruns
+    if 'nav_opt' not in st.session_state:
+        st.session_state.nav_opt = "🏠 Inicio"
+    # Feature 4: almacenamiento de versiones
+    if 'doc_versions' not in st.session_state:
+        st.session_state.doc_versions = {}   # {filename: {"original": str, "draft": str, "history": [str]}}
+
+    # --- ESTILOS ---
     st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&display=swap');
     .stApp { background-color: #FDFAF7; font-family: 'Lato', sans-serif; color: #212121; }
-    .top-nav { position: fixed; top: 20px; right: 40px; z-index: 1000; display: flex; gap: 20px; background: rgba(255, 255, 255, 0.8); padding: 10px 20px; border-radius: 30px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); backdrop-filter: blur(5px); }
-    .top-nav a { text-decoration: none; color: #915BD8; font-weight: 700; font-size: 18px; }
-    .pactora-header { font-family: 'Lato', sans-serif; font-weight: 900; font-size: 56px; color: #2C2039; text-align: center; margin-top: -40px; }
-    .pactora-tagline { text-align: center; color: #915BD8; font-weight: 600; margin-bottom: 30px; }
+    .top-nav { position: fixed; top: 20px; right: 40px; z-index: 1000; display: flex; gap: 20px;
+        background: rgba(255,255,255,0.85); padding: 10px 20px; border-radius: 30px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.06); backdrop-filter: blur(6px); }
+    .top-nav a { text-decoration: none; color: #915BD8; font-weight: 700; font-size: 16px; }
+    .pactora-header { font-family:'Lato',sans-serif; font-weight:900; font-size:52px;
+        color:#2C2039; text-align:center; margin-top:-30px; }
+    .pactora-tagline { text-align:center; color:#915BD8; font-weight:600; margin-bottom:24px; }
     section[data-testid="stSidebar"] { background-color: #2C2039 !important; width: 250px !important; }
     [data-testid="stSidebar"] * { color: #FDFAF7 !important; }
-    .factora-card { background: rgba(255, 255, 255, 0.8); border-radius: 20px; padding: 24px; box-shadow: 0 8px 32px 0 rgba(145, 91, 216, 0.05); border: 1px solid rgba(145, 91, 216, 0.1); margin-bottom: 20px; }
-    .card-title { font-size: 20px; font-weight: 900; color: #2C2039; margin-bottom: 18px; border-left: 5px solid #915BD8; padding-left: 12px; }
+    .factora-card { background:rgba(255,255,255,0.85); border-radius:16px; padding:20px;
+        box-shadow:0 6px 24px rgba(145,91,216,0.07); border:1px solid rgba(145,91,216,0.12);
+        margin-bottom:16px; }
+    .card-title { font-size:18px; font-weight:900; color:#2C2039; margin-bottom:14px;
+        border-left:4px solid #915BD8; padding-left:10px; }
+    .metric-card { background:white; border-radius:12px; padding:16px; text-align:center;
+        box-shadow:0 4px 16px rgba(145,91,216,0.08); border:1px solid rgba(145,91,216,0.1); }
+    .metric-val { font-size:32px; font-weight:900; color:#915BD8; }
+    .metric-lbl { font-size:12px; color:#666; margin-top:4px; }
+    .version-badge { background:#915BD8; color:white; border-radius:4px; padding:2px 8px;
+        font-size:11px; font-weight:700; }
+    div[data-testid="stButton"] > button { background-color:#915BD8; color:white; border:none;
+        border-radius:8px; font-weight:700; padding:8px 20px; transition:background 0.2s; }
+    div[data-testid="stButton"] > button:hover { background-color:#7a48c0; color:white; }
     </style>
     """, unsafe_allow_html=True)
-    
-    # --- SIDEBAR NAVIGATION ---
+
+    # --- SIDEBAR ---
     with st.sidebar:
-        nav_opt = st.radio(
+        # Bug 2 fix: usar key vinculado a session_state
+        nav_choice = st.radio(
             "Menú",
-            ["🏠 Inicio", "📅 Calendario", "📊 Métricas", "📄 Plantillas", "⚖️ Análisis Legal", "🧠 Chatbot", "⚙️ Ajustes"],
-            label_visibility="collapsed"
+            ["🏠 Inicio", "📅 Calendario", "📊 Métricas", "📄 Plantillas",
+             "⚖️ Análisis Legal", "🧠 Chatbot", "⚙️ Ajustes"],
+            index=["🏠 Inicio", "📅 Calendario", "📊 Métricas", "📄 Plantillas",
+                   "⚖️ Análisis Legal", "🧠 Chatbot", "⚙️ Ajustes"].index(
+                       st.session_state.nav_opt),
+            label_visibility="collapsed",
+            key="nav_radio"
         )
+        # Sincronizar sin rerun innecesario
+        if nav_choice != st.session_state.nav_opt:
+            st.session_state.nav_opt = nav_choice
+            # Limpiar estado de chat lateral al cambiar de sección
+            st.session_state.sidebar_chat_open = False
+
         st.divider()
         if 'drive_root_id' in st.session_state:
-            st.caption(f"☁️ Conectado: {st.session_state.get('drive_root_name', 'Drive')}")
-        st.session_state.agent_active = st.toggle("🤖 Activar Agente (JuanMa)", value=st.session_state.get('agent_active', False))
+            st.caption(f"☁️ {st.session_state.get('drive_root_name','Drive')}")
 
-    # --- LAYOUT LOGIC ---
+        # Mostrar docs indexados en sidebar
+        stats = st.session_state.chatbot.get_stats()
+        if stats['total_docs'] > 0:
+            st.caption(f"📂 {stats['total_docs']} doc(s) indexados")
+
+        st.session_state.agent_active = st.toggle(
+            "🤖 Activar Agente (JuanMa)",
+            value=st.session_state.get('agent_active', False)
+        )
+        if st.session_state.agent_active:
+            st.success("Agente habilitado:\nJuanMa está listo para actuar.")
+
+    nav_opt = st.session_state.nav_opt
+
+    # --- LAYOUT ---
     if st.session_state.get('sidebar_chat_open'):
         col_main, col_side = st.columns([2.5, 1])
     else:
@@ -97,132 +165,479 @@ def main():
         col_side = None
 
     with col_main:
-        # Top Nav & Branding
-        st.markdown('<div class="top-nav"><a href="#inicio">🏠 Inicio</a><a href="#chatbot">🧠 JuanMa</a><a href="#ajustes">⚙️ Ajustes</a></div>', unsafe_allow_html=True)
-        st.markdown('<div class="pactora-header">Pactora</div><div class="pactora-tagline">by Unergy</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="top-nav">'
+            '<a href="#">🏠 Inicio</a>'
+            '<a href="#">🧠 JuanMa</a>'
+            '<a href="#">⚙️ Ajustes</a>'
+            '</div>',
+            unsafe_allow_html=True
+        )
+        st.markdown(
+            '<div class="pactora-header">Pactora</div>'
+            '<div class="pactora-tagline">by Unergy</div>',
+            unsafe_allow_html=True
+        )
 
+        # ============================================================
+        # 🏠 INICIO
+        # ============================================================
         if nav_opt == "🏠 Inicio":
-            st.markdown('<div style="max-width: 600px; margin: 0 auto;">', unsafe_allow_html=True)
-            search_query = st.text_input("🔍 Buscar en todo el workspace...", placeholder="Ej: Cláusulas de terminación en Suno Solar")
-            st.markdown('</div>', unsafe_allow_html=True)
-            
+            search_query = st.text_input(
+                "🔍",
+                placeholder="Buscar en contratos indexados… Ej: cláusulas de terminación Suno Solar",
+                label_visibility="collapsed"
+            )
             if search_query:
-                with st.spinner("JuanMa consultando..."):
+                with st.spinner("JuanMa consultando contratos..."):
                     ans = st.session_state.chatbot.ask_question(search_query)
-                st.info(f"🤖 **JuanMa Insights:**\n\n{ans}")
+                st.info(f"🤖 **JuanMa:**\n\n{ans}")
 
             c1, c2 = st.columns(2)
             with c1:
-                st.markdown('<div class="factora-card"><div class="card-title">Explorador de Archivos</div>', unsafe_allow_html=True)
+                st.markdown('<div class="factora-card"><div class="card-title">📁 Explorador de Archivos</div>', unsafe_allow_html=True)
                 if 'drive_root_id' in st.session_state:
-                    from utils.drive_manager import get_folder_contents
-                    
-                    if st.session_state.get('drive_api_key') == "DEMO_KEY" and 'mock_items' in st.session_state:
+                    from utils.drive_manager import get_folder_contents, download_file_to_io, get_recursive_files
+                    from utils.file_parser import extract_text_from_file
+
+                    drive_api_key = st.session_state.get('drive_api_key')
+                    is_demo = drive_api_key == "DEMO_KEY"
+
+                    # Breadcrumb + back button
+                    history = st.session_state.folder_history
+                    breadcrumb = " › ".join(name for _, name in history)
+                    st.caption(f"📍 {breadcrumb}")
+                    if len(history) > 1:
+                        if st.button("⬅ Volver", key="back_btn", type="secondary"):
+                            history.pop()
+                            st.session_state.current_folder_id = history[-1][0]
+                            st.rerun()
+
+                    if is_demo and 'mock_items' in st.session_state:
                         items = st.session_state.mock_items
                     else:
-                        items = get_folder_contents(st.session_state.current_folder_id, api_key=st.session_state.get('drive_api_key'))
-                    
-                    for item in items[:10]:
-                        icon = "📁" if item['mimeType'] == 'application/vnd.google-apps.folder' else "📄"
-                        row = st.columns([1, 8, 1])
+                        items = get_folder_contents(
+                            st.session_state.current_folder_id,
+                            api_key=drive_api_key
+                        )
+
+                    for item in items[:15]:
+                        is_folder = item['mimeType'] == 'application/vnd.google-apps.folder'
+                        icon = "📁" if is_folder else "📄"
+                        row = st.columns([1, 7, 1])
                         row[0].write(icon)
                         if row[1].button(item['name'], key=f"f_{item['id']}", use_container_width=True):
-                            if item['mimeType'] == 'application/vnd.google-apps.folder':
+                            if is_folder:
                                 st.session_state.current_folder_id = item['id']
                                 st.session_state.folder_history.append((item['id'], item['name']))
                                 st.rerun()
-                        if row[2].button("🤖", key=f"ia_{item['id']}", help="Preguntar sobre este contexto"):
+                        help_txt = "Analizar carpeta con JuanMa" if is_folder else "Preguntar a JuanMa sobre este archivo"
+                        if row[2].button("🤖", key=f"ia_{item['id']}", help=help_txt):
+                            chatbot = st.session_state.chatbot
+                            if not is_demo:
+                                if is_folder:
+                                    with st.spinner(f"Indexando archivos de '{item['name']}'..."):
+                                        files = get_recursive_files(item['id'], api_key=drive_api_key)
+                                        docs = []
+                                        for f in files:
+                                            fio = download_file_to_io(f['id'], api_key=drive_api_key)
+                                            if fio:
+                                                txt = extract_text_from_file(fio, f['name'])
+                                                if txt and not txt.startswith("Error"):
+                                                    docs.append((txt, f['name'], {}))
+                                        if docs:
+                                            chatbot.vector_ingest_multiple(docs)
+                                else:
+                                    if item['name'] not in chatbot._indexed_sources:
+                                        with st.spinner(f"Indexando '{item['name']}'..."):
+                                            fio = download_file_to_io(item['id'], api_key=drive_api_key)
+                                            if fio:
+                                                txt = extract_text_from_file(fio, item['name'])
+                                                if txt and not txt.startswith("Error"):
+                                                    chatbot.vector_ingest(txt, filename=item['name'])
                             st.session_state.sidebar_chat_open = True
                             st.session_state.sidebar_chat_title = item['name']
                             st.session_state.sidebar_chat_history = []
-                            st.session_state.sidebar_chat_filter = {"file_id": item['id']} if item['mimeType'] != 'application/vnd.google-apps.folder' else {"folder_id": item['id']}
+                            st.session_state.sidebar_chat_filter = None if is_folder else {"source": item['name']}
                             st.rerun()
                 else:
-                    st.info("Conecta tu Drive en Ajustes.")
-                st.markdown('</div>', unsafe_allow_html=True)
-            
-            with c2:
-                st.markdown('<div class="factora-card"><div class="card-title">Calendario</div>', unsafe_allow_html=True)
-                # (Minified calendar logic)
-                st.write("Marzo 2026")
-                st.image("https://via.placeholder.com/300x150?text=Mini+Calendar")
+                    st.info("Conecta tu Google Drive en ⚙️ Ajustes para explorar archivos.")
                 st.markdown('</div>', unsafe_allow_html=True)
 
+            with c2:
+                st.markdown('<div class="factora-card"><div class="card-title">📊 Estado del Workspace</div>', unsafe_allow_html=True)
+                stats = st.session_state.chatbot.get_stats()
+                m1, m2 = st.columns(2)
+                m1.markdown(f'<div class="metric-card"><div class="metric-val">{stats["total_docs"]}</div><div class="metric-lbl">Contratos indexados</div></div>', unsafe_allow_html=True)
+                m2.markdown(f'<div class="metric-card"><div class="metric-val">{stats["total_chunks"]}</div><div class="metric-lbl">Fragmentos en RAG</div></div>', unsafe_allow_html=True)
+                if stats['sources']:
+                    st.caption("Fuentes:")
+                    for s in stats['sources'][:5]:
+                        st.markdown(f"• `{s}`")
+                else:
+                    st.caption("Sin documentos indexados aún.")
+                st.markdown('</div>', unsafe_allow_html=True)
+
+        # ============================================================
+        # 📅 CALENDARIO
+        # ============================================================
         elif nav_opt == "📅 Calendario":
             st.header("📅 Calendario Operativo")
             view = st.radio("Vista", ["Mensual", "Semanal", "Diario"], horizontal=True)
-            st.info(f"Mostrando vista {view}...")
+            st.info(f"Vista {view} — Conecta Google Calendar en Ajustes para ver eventos reales.")
 
+        # ============================================================
+        # 📊 MÉTRICAS — Bug 3: datos reales del vectorstore
+        # ============================================================
         elif nav_opt == "📊 Métricas":
             st.header("📊 Métricas de Cumplimiento")
             import pandas as pd
-            df = pd.DataFrame({"Proyecto": ["Suno", "Pactora", "Unergy"], "Score": [85, 92, 78]})
-            st.bar_chart(df.set_index("Proyecto"))
 
+            stats = st.session_state.chatbot.get_stats()
+
+            # KPIs reales
+            k1, k2, k3 = st.columns(3)
+            k1.markdown(f'<div class="metric-card"><div class="metric-val">{stats["total_docs"]}</div><div class="metric-lbl">Contratos indexados</div></div>', unsafe_allow_html=True)
+            k2.markdown(f'<div class="metric-card"><div class="metric-val">{stats["total_chunks"]}</div><div class="metric-lbl">Fragmentos en RAG</div></div>', unsafe_allow_html=True)
+            versiones = sum(len(v.get('history', [])) for v in st.session_state.doc_versions.values())
+            k3.markdown(f'<div class="metric-card"><div class="metric-val">{versiones}</div><div class="metric-lbl">Versiones guardadas</div></div>', unsafe_allow_html=True)
+
+            st.markdown("---")
+
+            if stats['sources']:
+                # Gráfico con documentos reales
+                doc_data = {"Documento": [s[:30] for s in stats['sources']], "Fragmentos RAG": []}
+                try:
+                    all_meta = st.session_state.chatbot.vectorstore.get(include=["metadatas"])
+                    metas = all_meta.get("metadatas", [])
+                    for src in stats['sources']:
+                        count = sum(1 for m in metas if m and m.get("source") == src)
+                        doc_data["Fragmentos RAG"].append(count)
+                    df = pd.DataFrame(doc_data)
+                    st.subheader("Fragmentos indexados por documento")
+                    st.bar_chart(df.set_index("Documento"))
+                except Exception:
+                    st.info("Indexa documentos para ver métricas detalladas.")
+
+                st.subheader("📄 Documentos indexados")
+                for i, src in enumerate(stats['sources'], 1):
+                    st.markdown(f"`{i}.` **{src}**")
+            else:
+                st.info("No hay documentos indexados. Ve a ⚖️ Análisis Legal o ⚙️ Ajustes para indexar contratos.")
+
+        # ============================================================
+        # 📄 PLANTILLAS
+        # ============================================================
         elif nav_opt == "📄 Plantillas":
             st.header("📄 Biblioteca de Plantillas")
-            st.write("PPA_Standard_V2.docx")
-            st.button("Descargar .docx")
+            plantillas = [
+                {"nombre": "PPA_Standard_V2.docx", "tipo": "PPA", "version": "v2.1"},
+                {"nombre": "EPC_Contrato_Base.docx", "tipo": "EPC", "version": "v1.3"},
+                {"nombre": "O&M_Marco_General.docx", "tipo": "O&M", "version": "v1.0"},
+            ]
+            for p in plantillas:
+                col_a, col_b, col_c = st.columns([5, 2, 2])
+                col_a.markdown(f"📄 **{p['nombre']}** `{p['tipo']}`")
+                col_b.markdown(f'<span class="version-badge">{p["version"]}</span>', unsafe_allow_html=True)
+                col_c.button("Descargar", key=f"dl_{p['nombre']}")
 
+        # ============================================================
+        # ⚖️ ANÁLISIS LEGAL — Feature 4: control de versiones
+        # ============================================================
         elif nav_opt == "⚖️ Análisis Legal":
-            st.header("⚖️ Análisis de Riesgos")
-            up = st.file_uploader("Subir contrato")
-            if up: st.success("Documento cargado.")
+            st.header("⚖️ Análisis de Riesgos y Contratos")
 
+            tab_upload, tab_editor, tab_versions = st.tabs(
+                ["📤 Cargar Contrato", "✏️ Editor de Borrador", "🗂️ Historial de Versiones"]
+            )
+
+            # --- TAB 1: Carga y análisis ---
+            with tab_upload:
+                up = st.file_uploader(
+                    "Sube un contrato (PDF o DOCX)",
+                    type=["pdf", "docx"],
+                    key="contract_uploader"
+                )
+                if up:
+                    from utils.file_parser import extract_text_from_file
+                    import io
+                    file_bytes = up.read()
+                    text = extract_text_from_file(io.BytesIO(file_bytes), up.name)
+
+                    if text and not text.startswith("Error"):
+                        st.success(f"✅ **{up.name}** cargado — {len(text):,} caracteres extraídos.")
+
+                        # Feature 4: guardar versión original intocable
+                        if up.name not in st.session_state.doc_versions:
+                            st.session_state.doc_versions[up.name] = {
+                                "original": text,
+                                "draft": text,
+                                "history": []
+                            }
+                            # Auto-indexar en RAG (Bug 1 fix)
+                            with st.spinner("Indexando en JuanMa..."):
+                                ok, msg = st.session_state.chatbot.vector_ingest(
+                                    text, up.name, {"file_type": up.name.split(".")[-1]}
+                                )
+                            st.info(msg)
+                        else:
+                            st.info("Este documento ya estaba indexado. Ve a ✏️ Editor para editarlo.")
+
+                        # Vista previa del texto
+                        with st.expander("📖 Vista previa del contenido"):
+                            st.text(text[:2000] + ("..." if len(text) > 2000 else ""))
+
+                        # Análisis automático con JuanMa
+                        if st.button("🔍 Analizar riesgos con JuanMa"):
+                            with st.spinner("JuanMa analizando el contrato..."):
+                                analysis = st.session_state.chatbot.ask_question(
+                                    f"Analiza los riesgos, obligaciones principales, partes y fechas clave del contrato '{up.name}'. "
+                                    "Usa el sistema de semáforo para clasificar los riesgos.",
+                                    filter_metadata={"source": up.name}
+                                )
+                            st.markdown("### 📋 Análisis de Riesgos")
+                            st.markdown(analysis)
+                    else:
+                        st.error(f"No se pudo extraer texto: {text}")
+
+            # --- TAB 2: Editor de borrador (Feature 4) ---
+            with tab_editor:
+                if not st.session_state.doc_versions:
+                    st.info("Carga un contrato en la pestaña '📤 Cargar Contrato' para empezar a editar.")
+                else:
+                    doc_sel = st.selectbox(
+                        "Selecciona documento a editar",
+                        list(st.session_state.doc_versions.keys()),
+                        key="doc_sel_editor"
+                    )
+                    ver = st.session_state.doc_versions[doc_sel]
+
+                    col_orig, col_draft = st.columns(2)
+                    with col_orig:
+                        st.markdown("#### 🔒 Original (solo lectura)")
+                        st.text_area(
+                            "original",
+                            value=ver["original"][:3000],
+                            height=400,
+                            disabled=True,
+                            label_visibility="collapsed"
+                        )
+
+                    with col_draft:
+                        st.markdown("#### ✏️ Borrador de trabajo")
+                        new_draft = st.text_area(
+                            "draft",
+                            value=ver["draft"],
+                            height=400,
+                            key=f"draft_{doc_sel}",
+                            label_visibility="collapsed"
+                        )
+
+                    col_save, col_reset, col_export = st.columns(3)
+                    with col_save:
+                        if st.button("💾 Guardar versión"):
+                            # Feature 4: push a historial antes de sobreescribir
+                            import datetime
+                            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+                            st.session_state.doc_versions[doc_sel]["history"].append({
+                                "timestamp": timestamp,
+                                "content": ver["draft"]
+                            })
+                            st.session_state.doc_versions[doc_sel]["draft"] = new_draft
+                            st.success(f"✅ Versión guardada ({timestamp})")
+                            st.rerun()
+
+                    with col_reset:
+                        if st.button("↩️ Restaurar original"):
+                            st.session_state.doc_versions[doc_sel]["draft"] = ver["original"]
+                            st.success("Borrador restaurado al original.")
+                            st.rerun()
+
+                    with col_export:
+                        st.download_button(
+                            "⬇️ Exportar borrador",
+                            data=new_draft.encode("utf-8"),
+                            file_name=f"BORRADOR_{doc_sel.replace('.docx','').replace('.pdf','')}.txt",
+                            mime="text/plain"
+                        )
+
+                    # Preguntar sobre diferencias
+                    if st.button("🤖 JuanMa: ¿qué cambié?"):
+                        orig_words = set(ver["original"].split())
+                        draft_words = set(new_draft.split())
+                        added = draft_words - orig_words
+                        removed = orig_words - draft_words
+                        diff_context = f"Palabras añadidas: {', '.join(list(added)[:50])}\nPalabras eliminadas: {', '.join(list(removed)[:50])}"
+                        with st.spinner("Analizando cambios..."):
+                            analysis = st.session_state.chatbot.ask_question(
+                                f"Evalúa las siguientes modificaciones realizadas al contrato '{doc_sel}' "
+                                f"e indica si representan riesgos legales.\n{diff_context}"
+                            )
+                        st.markdown("#### 🔎 Análisis de cambios")
+                        st.markdown(analysis)
+
+            # --- TAB 3: Historial de versiones (Feature 4) ---
+            with tab_versions:
+                if not any(v["history"] for v in st.session_state.doc_versions.values()):
+                    st.info("No hay versiones guardadas aún. Edita un documento y guarda versiones.")
+                else:
+                    for doc_name, ver in st.session_state.doc_versions.items():
+                        if ver["history"]:
+                            st.markdown(f"#### 📄 {doc_name}")
+                            for i, snap in enumerate(reversed(ver["history"])):
+                                with st.expander(f"🕐 Versión {len(ver['history'])-i} — {snap['timestamp']}"):
+                                    st.text(snap['content'][:1000] + ("..." if len(snap['content']) > 1000 else ""))
+                                    if st.button(f"↩️ Restaurar esta versión", key=f"restore_{doc_name}_{i}"):
+                                        st.session_state.doc_versions[doc_name]["draft"] = snap["content"]
+                                        st.success("Borrador restaurado a esta versión.")
+                                        st.rerun()
+
+        # ============================================================
+        # 🧠 CHATBOT
+        # ============================================================
         elif nav_opt == "🧠 Chatbot":
-            st.header("🧠 JuanMa - Asistente Global")
-            if 'chat_history' not in st.session_state: st.session_state.chat_history = []
+            st.header("🧠 JuanMa — Asistente de Contratos")
+
+            stats = st.session_state.chatbot.get_stats()
+            if stats['total_docs'] > 0:
+                st.caption(f"📂 Consultando {stats['total_docs']} contrato(s) indexado(s): {', '.join(stats['sources'][:3])}")
+            else:
+                st.warning("⚠️ No hay contratos indexados. Carga documentos en ⚖️ Análisis Legal o ⚙️ Ajustes para que JuanMa pueda responder con contexto real.")
+
+            if 'chat_history' not in st.session_state:
+                st.session_state.chat_history = []
+
             for m in st.session_state.chat_history:
-                with st.chat_message(m['role']): st.markdown(m['content'])
-            prompt = st.chat_input("Dime algo...")
+                with st.chat_message(m['role']):
+                    st.markdown(m['content'])
+
+            prompt = st.chat_input("Pregunta sobre los contratos indexados...")
             if prompt:
                 st.session_state.chat_history.append({"role": "user", "content": prompt})
-                with st.chat_message("user"): st.markdown(prompt)
+                with st.chat_message("user"):
+                    st.markdown(prompt)
                 with st.chat_message("assistant"):
-                    res = st.session_state.chatbot.ask_question(prompt)
+                    with st.spinner("JuanMa analizando contratos..."):
+                        res = st.session_state.chatbot.ask_question(prompt)
                     st.markdown(res)
                 st.session_state.chat_history.append({"role": "assistant", "content": res})
 
+        # ============================================================
+        # ⚙️ AJUSTES
+        # ============================================================
         elif nav_opt == "⚙️ Ajustes":
-            st.header("⚙️ Ajustes")
-            k = st.text_input("Gemini API Key", value=st.session_state.gemini_api_key, type="password")
-            if st.button("Guardar"):
-                st.session_state.gemini_api_key = k
-                st.rerun()
-            st.divider()
-            if st.button("🧠 Indexar Workspace Completo"):
-                if 'drive_root_id' not in st.session_state: st.error("Conecta Drive primero.")
-                else:
-                    with st.spinner("Indexando..."):
-                        from utils.drive_manager import get_recursive_files, download_file_to_io
-                        from utils.file_parser import extract_text_from_file
-                        all_f = get_recursive_files(st.session_state.drive_root_id, api_key=st.session_state.drive_api_key)
-                        ingest = []
-                        for f in all_f:
-                            io_f = download_file_to_io(f['id'], api_key=st.session_state.drive_api_key)
-                            if io_f:
-                                txt = extract_text_from_file(io_f, f['name'])
-                                ingest.append((txt, f['name'], {"file_id": f['id'], "folder_id": f.get('parents', [''])[0]}))
-                        st.session_state.chatbot.vector_ingest_multiple(ingest)
-                        st.success("¡Workspace indexado!")
+            st.markdown('<p class="pactora-header" style="font-size:36px;">⚙️ Configuración</p>', unsafe_allow_html=True)
+            st.markdown("---")
 
-            if st.button("Conectar Drive Demo"):
-                st.session_state.drive_root_id = "1sF8_SuiiFdiWq_9htA-cNZP1Gp0djc4N"
-                st.session_state.drive_api_key = "DEMO_KEY"
-                st.session_state.current_folder_id = st.session_state.drive_root_id
-                st.session_state.folder_history = [(st.session_state.drive_root_id, "Raíz Pactora")]
-                st.session_state.drive_root_name = "Raíz Pactora (Demo)"
-                # Mock items for verification
-                st.session_state.mock_items = [
-                    {'id': 'doc1', 'name': 'Contrato_Suno_Solar_v1.docx', 'mimeType': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'},
-                    {'id': 'doc2', 'name': 'EPC_Pactora_Final.docx', 'mimeType': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'},
-                    {'id': 'fold1', 'name': 'Anexos_Legales', 'mimeType': 'application/vnd.google-apps.folder'}
-                ]
+            col_gemini, col_drive = st.columns(2)
+
+            with col_gemini:
+                st.markdown("""
+                <div style="background:white; border-radius:16px; padding:24px;
+                     box-shadow:0 4px 20px rgba(145,91,216,0.08);
+                     border:1px solid rgba(145,91,216,0.15); min-height:200px;">
+                    <h3 style="color:#2C2039; margin-top:0; border-left:4px solid #915BD8; padding-left:10px;">
+                        🤖 Gemini API
+                    </h3>
+                </div>""", unsafe_allow_html=True)
+                k = st.text_input(
+                    "API Key",
+                    value=st.session_state.gemini_api_key,
+                    type="password",
+                    label_visibility="collapsed",
+                    placeholder="Ingresa tu Gemini API Key…"
+                )
+                if st.button("Guardar Key"):
+                    st.session_state.gemini_api_key = k
+                    st.session_state.chatbot = RAGChatbot(api_key=k)
+                    st.success("✅ API Key guardada y chatbot reiniciado.")
+                    st.rerun()
+
+            with col_drive:
+                st.markdown("""
+                <div style="background:white; border-radius:16px; padding:24px;
+                     box-shadow:0 4px 20px rgba(145,91,216,0.08);
+                     border:1px solid rgba(145,91,216,0.15); min-height:200px;">
+                    <h3 style="color:#2C2039; margin-top:0; border-left:4px solid #915BD8; padding-left:10px;">
+                        ☁️ Conexión Drive
+                    </h3>
+                </div>""", unsafe_allow_html=True)
+                folder_id_input = st.text_input(
+                    "ID carpeta",
+                    value=st.session_state.get('drive_root_id', "1sF8_SuiiFdiWq_9htA-cNZP1Gp0djc4N"),
+                    label_visibility="collapsed",
+                    placeholder="ID de carpeta raíz de Drive…"
+                )
+                drive_key_input = st.text_input(
+                    "Drive API Key",
+                    value=st.session_state.get('drive_api_key', ''),
+                    type="password",
+                    label_visibility="collapsed",
+                    placeholder="API Key o credencial de servicio…"
+                )
+                if st.button("Conectar Drive"):
+                    if folder_id_input:
+                        st.session_state.drive_root_id = folder_id_input
+                        st.session_state.drive_api_key = drive_key_input or "DEMO_KEY"
+                        st.session_state.current_folder_id = folder_id_input
+                        st.session_state.folder_history = [(folder_id_input, "Raíz Pactora")]
+                        st.session_state.drive_root_name = "Raíz Pactora"
+                        st.session_state.mock_items = [
+                            {'id': 'doc1', 'name': 'Contrato_Suno_Solar_v1.docx',
+                             'mimeType': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'},
+                            {'id': 'doc2', 'name': 'EPC_Pactora_Final.docx',
+                             'mimeType': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'},
+                            {'id': 'fold1', 'name': 'Anexos_Legales',
+                             'mimeType': 'application/vnd.google-apps.folder'}
+                        ]
+                        st.success("✅ Drive conectado.")
+                        st.rerun()
+                    else:
+                        st.error("Ingresa un ID de carpeta.")
+
+            st.markdown("---")
+
+            with st.expander("🧠 Indexar Workspace Completo desde Drive"):
+                st.caption("Descarga y vectoriza todos los PDF/DOCX de la carpeta raíz conectada.")
+                if st.button("Iniciar indexación"):
+                    if 'drive_root_id' not in st.session_state:
+                        st.error("Conecta Drive primero.")
+                    else:
+                        with st.spinner("Indexando workspace..."):
+                            from utils.drive_manager import get_recursive_files, download_file_to_io
+                            from utils.file_parser import extract_text_from_file
+                            all_f = get_recursive_files(
+                                st.session_state.drive_root_id,
+                                api_key=st.session_state.drive_api_key
+                            )
+                            ingest = []
+                            for f in all_f:
+                                io_f = download_file_to_io(f['id'], api_key=st.session_state.drive_api_key)
+                                if io_f:
+                                    txt = extract_text_from_file(io_f, f['name'])
+                                    ingest.append((txt, f['name'], {
+                                        "file_id": f['id'],
+                                        "folder_id": f.get('parents', [''])[0]
+                                    }))
+                            if ingest:
+                                ok, msg = st.session_state.chatbot.vector_ingest_multiple(ingest)
+                                if ok:
+                                    st.success(msg)
+                                else:
+                                    st.error(msg)
+                            else:
+                                st.warning("No se encontraron archivos PDF/DOCX en la carpeta.")
+
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("🚪 Cerrar Sesión Pactora"):
+                for key in list(st.session_state.keys()):
+                    del st.session_state[key]
                 st.rerun()
 
-    # Right Panel Rendering
+    # --- Panel lateral ---
     if col_side:
         render_side_chat_panel(col_side)
+
 
 if __name__ == "__main__":
     main()
