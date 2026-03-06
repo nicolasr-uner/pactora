@@ -1,9 +1,10 @@
 import io
 import os
-from googleapiclient.http import MediaIoBaseDownload
+from googleapiclient.errors import HttpError
+from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 from typing import Optional, Dict, Any, List
 
-from utils.auth_helper import get_drive_service
+from utils.auth_helper import get_drive_service, get_drive_service_with_apikey
 
 def search_documents(query: str = "", max_results: int = 20) -> List[Dict]:
     """
@@ -80,19 +81,126 @@ def create_project_folder(project_name: str, parent_folder_id: Optional[str] = N
     service = get_drive_service()
     if not service:
         return None
-        
+
     folder_metadata: Dict[str, Any] = {
         'name': project_name,
         'mimeType': 'application/vnd.google-apps.folder'
     }
-    
+
     if parent_folder_id:
         folder_metadata['parents'] = [parent_folder_id]
-        
+
     try:
         folder = service.files().create(body=folder_metadata, fields='id').execute()
         return folder.get('id')
     except Exception as e:
         print(f"Error creating folder {project_name}: {e}")
         return None
+
+
+# --- Folder explorer helpers ---
+
+def get_folder_metadata(folder_id: str, api_key: str = None):
+    """Obtiene el nombre y detalles de una carpeta específica."""
+    try:
+        service = get_drive_service_with_apikey(api_key) if api_key else get_drive_service()
+        return service.files().get(fileId=folder_id, fields="id, name", supportsAllDrives=True).execute()
+    except HttpError as error:
+        print(f"Error obteniendo metadata de {folder_id}: {error}")
+        return {"id": folder_id, "name": "Carpeta Desconocida"}
+
+
+def get_folder_contents(folder_id: str, api_key: str = None):
+    """Lista el contenido de UN nivel de carpeta (explorador de archivos)."""
+    def _list(service):
+        query = f"'{folder_id}' in parents and trashed=false"
+        results = service.files().list(
+            q=query,
+            pageSize=1000,
+            fields="nextPageToken, files(id, name, mimeType, webViewLink, createdTime)",
+            orderBy="folder, name",
+            includeItemsFromAllDrives=True,
+            supportsAllDrives=True
+        ).execute()
+        return results.get('files', [])
+
+    try:
+        service = get_drive_service_with_apikey(api_key) if api_key else get_drive_service()
+        return _list(service)
+    except HttpError as error:
+        if api_key and error.resp.status in (401, 403):
+            try:
+                return _list(get_drive_service())
+            except Exception:
+                pass
+        print(f"Error listando contenidos de {folder_id}: {error}")
+        return []
+
+
+def _do_download(service, file_id: str) -> io.BytesIO:
+    request = service.files().get_media(fileId=file_id)
+    file_io = io.BytesIO()
+    downloader = MediaIoBaseDownload(file_io, request)
+    done = False
+    while not done:
+        _, done = downloader.next_chunk()
+    file_io.seek(0)
+    return file_io
+
+
+def download_file_to_io(file_id: str, api_key: str = None) -> Optional[io.BytesIO]:
+    """Descarga un archivo de Drive a BytesIO. Con fallback OAuth si la API key falla."""
+    try:
+        service = get_drive_service_with_apikey(api_key) if api_key else get_drive_service()
+        return _do_download(service, file_id)
+    except HttpError as error:
+        if api_key and error.resp.status in (401, 403):
+            try:
+                return _do_download(get_drive_service(), file_id)
+            except Exception as e2:
+                print(f"OAuth fallback también falló para {file_id}: {e2}")
+        print(f"Error descargando {file_id}: {error}")
+        return None
+
+
+def get_recursive_files(folder_id: str, api_key: str = None) -> List[Dict]:
+    """Busca recursivamente todos los PDF/DOCX dentro de una carpeta."""
+    all_files = []
+
+    def _list_folder(fid):
+        try:
+            service = get_drive_service_with_apikey(api_key) if api_key else get_drive_service()
+            query = f"'{fid}' in parents and trashed=false"
+            results = service.files().list(
+                q=query,
+                pageSize=1000,
+                fields="files(id, name, mimeType)",
+                includeItemsFromAllDrives=True,
+                supportsAllDrives=True
+            ).execute()
+            return results.get('files', [])
+        except HttpError as error:
+            if api_key and error.resp.status in (401, 403):
+                try:
+                    service = get_drive_service()
+                    query = f"'{fid}' in parents and trashed=false"
+                    results = service.files().list(
+                        q=query, pageSize=1000,
+                        fields="files(id, name, mimeType)",
+                        includeItemsFromAllDrives=True,
+                        supportsAllDrives=True
+                    ).execute()
+                    return results.get('files', [])
+                except Exception:
+                    pass
+            print(f"Error en búsqueda recursiva para {fid}: {error}")
+            return []
+
+    for item in _list_folder(folder_id):
+        if item['mimeType'] == 'application/vnd.google-apps.folder':
+            all_files.extend(get_recursive_files(item['id'], api_key))
+        elif 'pdf' in item['mimeType'] or 'word' in item['mimeType']:
+            all_files.append(item)
+
+    return all_files
 

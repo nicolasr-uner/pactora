@@ -3,11 +3,12 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from typing import List, Dict, Tuple, Optional, Any
 
-# System prompt especializado en contratos energéticos (Feature 5)
-LEGAL_SYSTEM_PROMPT = """Eres JuanMa, asistente legal y técnico especializado en contratos de energía de Unergy/Pactora.
+# System prompt especializado en contratos energéticos
+LEGAL_SYSTEM_PROMPT = """Eres JuanMita, agente legal y técnico especializada en contratos de energía de Unergy/Pactora.
+Tienes acceso completo a todos los contratos indexados del Drive corporativo.
 
 REGLAS ESTRICTAS:
 1. Basa tus respuestas EXCLUSIVAMENTE en el contenido de los contratos indexados en el CONTEXTO.
@@ -18,7 +19,8 @@ REGLAS ESTRICTAS:
    - 🟡 AMARILLO: Desviación frente al estándar comercial (>10%) o ambigüedad
    - 🟢 VERDE: Cláusula estándar, sin riesgos detectados
 5. Estructura tus respuestas con secciones claras cuando analices contratos.
-6. Cita siempre la fuente del documento cuando sea posible.
+6. Cita siempre el nombre del documento entre corchetes, ej: [Contrato_AMC.pdf].
+7. Si el usuario hace referencia a mensajes anteriores, mantén coherencia con las respuestas previas.
 
 CONTEXTO DE CONTRATOS INDEXADOS:
 {context}"""
@@ -118,45 +120,62 @@ class RAGChatbot:
     def vector_ingest(self, text_content: str, filename: str = "doc", metadata: Optional[Dict[str, Any]] = None):
         return self.vector_ingest_multiple([(text_content, filename, metadata or {})])
 
-    def ask_question(self, question: str, filter_metadata: Optional[Dict[str, Any]] = None) -> str:
+    def _retrieve_context(self, question: str, filter_metadata: Optional[Dict[str, Any]] = None) -> Tuple[str, List[str]]:
+        """Recupera fragmentos relevantes del vectorstore. Retorna (context_text, sources)."""
+        context_text = ""
+        sources: List[str] = []
+        if self.vectorstore is None:
+            return context_text, sources
+        try:
+            search_kwargs: Dict[str, Any] = {"k": 6}
+            if filter_metadata:
+                search_kwargs["filter"] = filter_metadata
+            docs = self.vectorstore.similarity_search(question, **search_kwargs)
+            if docs:
+                parts = []
+                for d in docs:
+                    src = d.metadata.get("source", "Documento")
+                    parts.append(f"[Fuente: {src}]\n{d.page_content}")
+                    if src not in sources:
+                        sources.append(src)
+                context_text = "\n\n---\n\n".join(parts)
+        except Exception as e:
+            return "", [f"ERROR:{e}"]
+        return context_text, sources
+
+    def ask_question(
+        self,
+        question: str,
+        filter_metadata: Optional[Dict[str, Any]] = None,
+        chat_history: Optional[List[Dict[str, str]]] = None,
+    ) -> str:
         """
-        Consulta el vectorstore y responde basándose estrictamente en los contratos indexados.
+        Consulta el vectorstore y responde basándose en los contratos indexados.
+        Acepta historial de conversación para respuestas relacionadas entre sí.
         """
         if not self.llm:
             return "⚠️ Gemini no está inicializado. Configura tu API Key en Ajustes."
 
-        context_text = ""
-        context_sources = []
+        context_text, sources = self._retrieve_context(question, filter_metadata)
+        if sources and sources[0].startswith("ERROR:"):
+            return f"⚠️ Error al consultar vectorstore: {sources[0][6:]}"
 
-        if self.vectorstore is not None:
-            try:
-                search_kwargs: Dict[str, Any] = {"k": 6}
-                if filter_metadata:
-                    search_kwargs["filter"] = filter_metadata
-
-                docs = self.vectorstore.similarity_search(question, **search_kwargs)
-                if docs:
-                    context_parts = []
-                    for d in docs:
-                        src = d.metadata.get("source", "Documento")
-                        context_parts.append(f"[Fuente: {src}]\n{d.page_content}")
-                        if src not in context_sources:
-                            context_sources.append(src)
-                    context_text = "\n\n---\n\n".join(context_parts)
-            except Exception as e:
-                context_text = ""
-                # Bug 1 fix: superficie el error en lugar de silenciarlo
-                return f"⚠️ Error al consultar vectorstore: {e}"
-
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", LEGAL_SYSTEM_PROMPT),
-            ("human", "{question}"),
-        ])
+        # Construir mensajes con historial para respuestas relacionadas
+        messages: List = [SystemMessage(content=LEGAL_SYSTEM_PROMPT.format(context=context_text))]
+        if chat_history:
+            for msg in chat_history[-8:]:  # últimos 8 mensajes para contexto
+                if msg.get("role") == "user":
+                    messages.append(HumanMessage(content=msg["content"]))
+                elif msg.get("role") == "assistant":
+                    messages.append(AIMessage(content=msg["content"]))
+        messages.append(HumanMessage(content=question))
 
         try:
-            formatted_prompt = prompt.format_messages(context=context_text, question=question)
-            response = self.llm.invoke(formatted_prompt)
-            return response.content
+            response = self.llm.invoke(messages)
+            answer = response.content
+            if sources:
+                answer += f"\n\n---\n📎 *Fuentes consultadas: {', '.join(sources)}*"
+            return answer
         except Exception as e:
             return f"⚠️ Error al invocar Gemini: {e}"
 
