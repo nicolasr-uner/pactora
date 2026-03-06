@@ -23,77 +23,58 @@ REGLAS ESTRICTAS:
 CONTEXTO DE CONTRATOS INDEXADOS:
 {context}"""
 
-
 class RAGChatbot:
     def __init__(self, persist_directory: str = "./chroma_db", api_key: Optional[str] = None):
         self.persist_directory = persist_directory
-        self.api_key = api_key or os.environ.get("GEMINI_API_KEY")
+        self.embeddings = None
+        self.llm = None
+        self.vectorstore = None
+        # Lazy init: will be called when needed
+        self._init_models()
 
-        if self.api_key:
-            # Bug 1 fix: usar text-embedding-004 (embedding-001 está deprecado)
-            self.embeddings = GoogleGenerativeAIEmbeddings(
-                model="models/text-embedding-004",
-                google_api_key=self.api_key
-            )
-            self.llm = ChatGoogleGenerativeAI(
-                model="gemini-2.0-flash",
-                google_api_key=self.api_key,
-                temperature=0.1  # Más bajo para respuestas más precisas en contratos
-            )
-        else:
-            self.embeddings = None
-            self.llm = None
-
-        self.vectorstore: Any = None
-        self._indexed_sources: List[str] = []
-        self._initialize_vectorstore()
-
-    def _initialize_vectorstore(self):
-        """Carga el vectorstore persistente si existe."""
-        if self.embeddings and os.path.exists(self.persist_directory):
+    def _init_models(self):
+        """Initialize embeddings and LLM using the current environment variable.
+        Safe to call multiple times — skips if already initialized."""
+        api_key = os.environ.get("GEMINI_API_KEY")
+        if api_key and self.embeddings is None:
             try:
-                self.vectorstore = Chroma(
-                    persist_directory=self.persist_directory,
-                    embedding_function=self.embeddings
+                self.embeddings = GoogleGenerativeAIEmbeddings(
+                    model="models/embedding-001",
+                    google_api_key=api_key
                 )
-                # Recuperar fuentes indexadas
-                try:
-                    all_docs = self.vectorstore.get(include=["metadatas"])
-                    sources = {m.get("source", "") for m in all_docs.get("metadatas", []) if m}
-                    self._indexed_sources = sorted([s for s in sources if s])
-                except Exception:
-                    self._indexed_sources = []
-            except Exception:
-                self.vectorstore = None
+                self.llm = ChatGoogleGenerativeAI(
+                    model="gemini-1.5-pro",
+                    google_api_key=api_key,
+                    temperature=0.2
+                )
+            except Exception as e:
+                print(f"RAGChatbot model init error: {e}")
 
-    def vector_ingest_multiple(self, documents_list: List[Tuple], metadata_global: Optional[Dict[str, Any]] = None):
+    def vector_ingest_multiple(self, documents_list: list):
         """
         Indexa una lista de (text_content, filename, metadata) en ChromaDB persistente.
         Devuelve (ok: bool, mensaje: str).
         """
+        # Always re-attempt init in case dotenv loaded after object was created
+        self._init_models()
+        
         if not self.embeddings:
-            return False, "API Key de Gemini no configurada."
-
+            return False, "GEMINI_API_KEY no configurada o incorrecta. Verifica tu archivo .env."
+            
         try:
             all_splits = []
-            text_splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=300)
-
-            for doc_data in documents_list:
-                if len(doc_data) == 3:
-                    text_content, filename, meta = doc_data
-                else:
-                    text_content, filename = doc_data[:2]
-                    meta = {}
-
-                if not text_content or not text_content.strip():
-                    continue
-
-                clean_meta = meta.copy() if isinstance(meta, dict) else {}
-                if metadata_global:
-                    clean_meta.update(metadata_global)
-                clean_meta["source"] = filename
-
-                splits = text_splitter.create_documents([text_content], metadatas=[clean_meta])
+            text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+            
+            for text_content, filename in documents_list:
+                # We save temporary text file to use TextLoader
+                safe_name = "".join(c for c in filename if c.isalnum() or c in "-_")[:50]
+                temp_file = f"temp_{safe_name}.txt"
+                with open(temp_file, "w", encoding="utf-8") as f:
+                    f.write(text_content)
+                    
+                loader = TextLoader(temp_file, encoding="utf-8")
+                documents = loader.load()
+                splits = text_splitter.split_documents(documents)
                 all_splits.extend(splits)
                 if filename not in self._indexed_sources:
                     self._indexed_sources.append(filename)
@@ -112,8 +93,23 @@ class RAGChatbot:
 
             return True, f"✅ {len(documents_list)} documento(s) indexado(s) correctamente."
 
+            # Reiniciar vectorstore para el nuevo contexto
+            if os.path.exists(self.persist_directory):
+                import shutil
+                shutil.rmtree(self.persist_directory)
+                
+            self.vectorstore = Chroma.from_documents(
+                documents=all_splits, 
+                embedding=self.embeddings,
+                persist_directory=self.persist_directory
+            )
+            
+            return True, f"Se han vectorizado {len(documents_list)} documentos con éxito ({len(all_splits)} fragmentos)."
+            
         except Exception as e:
-            return False, f"Error al indexar: {e}"
+            import traceback
+            print(traceback.format_exc())
+            return False, str(e)
 
     def vector_ingest(self, text_content: str, filename: str = "doc", metadata: Optional[Dict[str, Any]] = None):
         return self.vector_ingest_multiple([(text_content, filename, metadata or {})])
