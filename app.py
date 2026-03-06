@@ -364,6 +364,7 @@ def main():
         # ============================================================
         elif nav_opt == "📄 Plantillas":
             st.header("📄 Biblioteca de Plantillas")
+            st.info("💡 Asegúrate de que los archivos .docx de las plantillas existan en la carpeta raíz del proyecto.")
             plantillas = [
                 {"nombre": "PPA_Standard_V2.docx", "tipo": "PPA", "version": "v2.1"},
                 {"nombre": "EPC_Contrato_Base.docx", "tipo": "EPC", "version": "v1.3"},
@@ -373,7 +374,21 @@ def main():
                 col_a, col_b, col_c = st.columns([5, 2, 2])
                 col_a.markdown(f"📄 **{p['nombre']}** `{p['tipo']}`")
                 col_b.markdown(f'<span class="version-badge">{p["version"]}</span>', unsafe_allow_html=True)
-                col_c.button("Descargar", key=f"dl_{p['nombre']}")
+                
+                # Check for file existence to avoid crashing
+                file_path = p['nombre']
+                if os.path.exists(file_path):
+                    with open(file_path, "rb") as file:
+                        btn = col_c.download_button(
+                            label="Descargar",
+                            data=file,
+                            file_name=p['nombre'],
+                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                            key=f"dl_{p['nombre']}"
+                        )
+                else:
+                    col_c.warning("No encontrado")
+
 
         # ============================================================
         # ⚖️ ANÁLISIS LEGAL — Feature 4: control de versiones
