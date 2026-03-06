@@ -58,10 +58,19 @@ def main():
         if 'drive_root_id' in st.session_state:
             from utils.drive_manager import get_folder_contents, create_folder, upload_file, rename_item, delete_item
             
-            # --- BUSCADOR GENERAL ---
-            search_query = st.text_input("🔍 Buscar documento (ej: 'Contrato Solenium Braya')", key="global_search")
+            # --- BUSCADOR SEMÁNTICO RAG ---
+            search_query = st.text_input("🔍 Buscar documento con IA (ej: 'Contrato Solenium Braya')", key="global_search")
             if search_query:
-                st.info(f"Buscador Inteligente (RAG) en construcción. Búsqueda semántica para: '{search_query}'")
+                gemini_key = st.session_state.get('gemini_api_key')
+                if not gemini_key:
+                    st.warning("⚠️ Configura tu Gemini API Key en la pestaña ⚙️ **Configuración** para habilitar la búsqueda semántica.")
+                else:
+                    from core.rag_engine import query_rag
+                    from core.gemini_engine import configure_gemini
+                    configure_gemini(api_key=gemini_key)
+                    with st.spinner("Consultando IA..."):
+                        rag_result = query_rag(search_query)
+                    st.info(f"🤖 **Respuesta Pactora:**\n\n{rag_result}")
             
             # --- RENDER BREADCRUMBS ---
             st.write("---")
@@ -180,13 +189,87 @@ def main():
             st.info("Utiliza la herramienta '☁️ Herramienta de Conexión Drive' arriba a la derecha para iniciar la sincronización.")
     
     with tabs[1]:
-        st.header("🧠 Asistente Legal RAG")
-        st.write("Consultas conversacionales con contexto estricto de los documentos cargados.")
+        st.header("🧠 Asistente Legal Pactora")
+        st.write("Chatbot conversacional con contexto estricto de los contratos que tienes subidos en Pactora.")
+
+        gemini_key = st.session_state.get('gemini_api_key')
+        if not gemini_key:
+            st.warning("⚠️ Para activar el asistente, ve a ⚙️ **Configuración** e ingresa tu Gemini API Key.")
+        else:
+            from core.rag_chatbot import RAGChatbot
+            from core.gemini_engine import configure_gemini
+            configure_gemini(api_key=gemini_key)
+
+            # Inicializar chatbot y estado de conversación
+            if 'chatbot' not in st.session_state:
+                st.session_state.chatbot = RAGChatbot()
+            if 'chat_history' not in st.session_state:
+                st.session_state.chat_history = []
+
+            # --- PANEL DE INGESTIÓN DE CONTEXTO ---
+            with st.expander("📅 Cargar Documento para Analizar", expanded=not bool(st.session_state.chat_history)):
+                upload_for_rag = st.file_uploader("Sube un contrato (.pdf o .docx) para hacer preguntas sobre él", type=['pdf', 'docx'])
+                if upload_for_rag:
+                    if st.button("⚡ Vectorizar con IA y Cargar al Chatbot", type="primary", use_container_width=True):
+                        from utils.file_parser import extract_text_from_file
+                        import io
+                        with st.spinner("🔍 Extrayendo texto y vectorizando con Gemini..."):
+                            text = extract_text_from_file(io.BytesIO(upload_for_rag.getvalue()), upload_for_rag.name)
+                            if text.startswith("Error"):
+                                st.error(text)
+                            else:
+                                success, msg = st.session_state.chatbot.vector_ingest(text)
+                                if success:
+                                    st.session_state.chat_history = []
+                                    st.success(f"✅ {msg}")
+                                else:
+                                    st.error(f"Error vectorizando: {msg}")
+
+            # --- HISTORIAL DE CHAT ---
+            if st.session_state.chat_history:
+                for msg in st.session_state.chat_history:
+                    role = msg['role']
+                    content = msg['content']
+                    if role == 'user':
+                        with st.chat_message('user'):
+                            st.markdown(content)
+                    else:
+                        with st.chat_message('assistant', avatar='🤖'):
+                            st.markdown(content)
+
+            # --- INPUT DE PREGUNTA ---
+            user_question = st.chat_input("¿Qué quieres saber del contrato?")
+            if user_question:
+                st.session_state.chat_history.append({'role': 'user', 'content': user_question})
+                with st.chat_message('user'):
+                    st.markdown(user_question)
+                with st.chat_message('assistant', avatar='🤖'):
+                    with st.spinner("Pactora está pensando..."):
+                        answer = st.session_state.chatbot.ask_question(user_question)
+                    st.markdown(answer)
+                st.session_state.chat_history.append({'role': 'assistant', 'content': answer})
+
+            if st.session_state.chat_history:
+                if st.button("🗑️ Limpiar Conversación"):
+                    st.session_state.chat_history = []
+                    st.rerun()
         
     with tabs[2]:
         st.header("⚙️ Configuración e Integraciones")
-        st.write("Gestión de conexiones a Google Drive y Calendar.")
+        st.write("Gestión de credenciales y conexiones a Google Workspace y Gemini.")
         
+        # --- GEMINI API KEY ---
+        st.subheader("🤖 Clave API de Gemini")
+        st.write("Necesaria para el Asistente RAG y la búsqueda semántica.")
+        current_key = st.session_state.get('gemini_api_key', '')
+        gemini_key_input = st.text_input("Gemini API Key", value=current_key, type="password", key="gemini_key_input")
+        if st.button("💾 Guardar Gemini API Key", type="primary"):
+            st.session_state.gemini_api_key = gemini_key_input
+            st.success("✅ Clave guardada en sesión. Ya puedes usar el Asistente RAG.")
+        
+        st.divider()
+        
+        # --- GOOGLE WORKSPACE ---
         st.subheader("Estado de Conexión a Google Workspace")
         if st.button("Conectar / Verificar Credenciales de Google"):
             from utils.auth_helper import authenticate_google_apis
