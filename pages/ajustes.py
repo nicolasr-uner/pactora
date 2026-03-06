@@ -8,6 +8,34 @@ page_header()
 st.header("Configuracion")
 st.markdown("---")
 
+# ─── Status visible sin autenticacion ────────────────────────────────────────
+col_s1, col_s2 = st.columns(2)
+with col_s1:
+    if st.session_state.gemini_api_key:
+        st.success("Gemini API: Configurada")
+    else:
+        st.error("Gemini API: No configurada")
+with col_s2:
+    if "drive_root_id" in st.session_state:
+        n = st.session_state.chatbot.get_stats()["total_docs"]
+        st.success(f"Google Drive: Conectado — {n} contrato(s) indexado(s)")
+    else:
+        st.warning("Google Drive: No conectado")
+
+st.markdown("---")
+
+# ─── Clave de administrador ───────────────────────────────────────────────────
+_admin_pw = st.secrets.get("ADMIN_PASSWORD", "pactora2024")
+_entered = st.text_input(
+    "clave_admin",
+    type="password",
+    placeholder="Clave de administrador...",
+    label_visibility="collapsed"
+)
+if _entered != _admin_pw:
+    st.caption("Ingresa la clave de administrador para acceder a la configuracion.")
+    st.stop()
+
 col_gemini, col_drive = st.columns(2)
 
 # ─── Gemini API ───────────────────────────────────────────────────────────────
@@ -21,24 +49,24 @@ with col_gemini:
         </h3>
     </div>""", unsafe_allow_html=True)
 
+    if st.session_state.gemini_api_key:
+        st.caption("✓ Configurada")
     k = st.text_input(
         "API Key",
-        value=st.session_state.gemini_api_key,
+        value="",
         type="password",
         label_visibility="collapsed",
-        placeholder="Ingresa tu Gemini API Key..."
+        placeholder="Ingresa nueva Gemini API Key..."
     )
     if st.button("Guardar Key"):
-        from core.rag_chatbot import RAGChatbot
-        st.session_state.gemini_api_key = k
-        st.session_state.chatbot = RAGChatbot(api_key=k)
-        st.success("API Key guardada y JuanMitaBot reiniciado.")
-        st.rerun()
-
-    if st.session_state.gemini_api_key:
-        st.caption("Gemini conectado.")
-    else:
-        st.caption("Sin API Key configurada.")
+        if k:
+            from core.rag_chatbot import RAGChatbot
+            st.session_state.gemini_api_key = k
+            st.session_state.chatbot = RAGChatbot(api_key=k)
+            st.success("API Key guardada y JuanMitaBot reiniciado.")
+            st.rerun()
+        else:
+            st.warning("Ingresa una API Key para guardar.")
 
 # ─── Google Drive ─────────────────────────────────────────────────────────────
 with col_drive:
@@ -57,9 +85,11 @@ with col_drive:
         label_visibility="collapsed",
         placeholder="ID de carpeta raiz de Drive..."
     )
+    if st.session_state.get("drive_api_key", "") and st.session_state.get("drive_api_key") != "DEMO_KEY":
+        st.caption("✓ API Key configurada")
     drive_key_input = st.text_input(
         "Drive API Key",
-        value=st.session_state.get("drive_api_key", ""),
+        value="",
         type="password",
         label_visibility="collapsed",
         placeholder="API Key de Google Drive..."
