@@ -25,8 +25,113 @@ COLOR_GREEN = "#28a745"
 if 'chatbot' not in st.session_state:
     st.session_state['chatbot'] = RAGChatbot()
 
+def run_juanma_autonomous_analysis():
+    """
+    JuanMa's proactive engine: triggered automatically when the agent is enabled
+    and a document is loaded. Generates a proactive report in the chat without
+    waiting for the user to ask a question.
+    """
+    text = st.session_state.get('current_contract_text', '')
+    contract_type = st.session_state.get('last_contract_type', 'Desconocido')
+    
+    if not text:
+        return
+    
+    GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+    if not GEMINI_API_KEY:
+        return
+    
+    import google.generativeai as genai
+    genai.configure(api_key=GEMINI_API_KEY)
+    model = genai.GenerativeModel('models/gemini-1.5-pro')
+    
+    juanma_prompt = f"""
+Eres JuanMa, el Agente Legal Autónomo de Pactora para Unergy/Suno/Solenium.
+Analiza este contrato de tipo {contract_type} y emite un reporte proactivo en español.
+
+Estructura tu respuesta EXACTAMENTE así:
+🤖 **JuanMa — Análisis Autónomo**
+
+**Tipo de Contrato detectado:** [tipo]
+**Partes:** [Parte A] ↔ [Parte B]
+
+[🟢/🟡/🔴] **NIVEL DE RIESGO: [VERDE/AMARILLO/ROJO]**
+
+📋 **HALLAZGOS PRINCIPALES:**
+- [hallazgo 1]
+- [hallazgo 2]
+
+⚠️ **ALERTAS CRÍTICAS:** (si no hay, escribe "Ninguna")
+- [alerta 1]
+
+💡 **RECOMENDACIÓN:**
+- [acción sugerida al equipo legal]
+
+---
+*Este análisis es informativo. Requiere aprobación del equipo legal de Unergy.*
+
+Contrato:
+{text[:8000]}
+"""
+    
+    try:
+        response = model.generate_content(juanma_prompt)
+        juanma_message = response.text.strip()
+        
+        if "messages" not in st.session_state:
+            st.session_state.messages = []
+        
+        # Inject JuanMa's proactive message at the beginning of the chat
+        st.session_state.messages.insert(0, {
+            "role": "assistant",
+            "content": juanma_message,
+            "is_juanma": True
+        })
+        st.session_state['juanma_analyzed'] = True
+        
+    except Exception as e:
+        st.session_state.messages.insert(0, {
+            "role": "assistant",
+            "content": f"⚠️ JuanMa tuvo un error al analizar: {str(e)}",
+            "is_juanma": True
+        })
+
 def main():
     st.set_page_config(page_title="Pactora - DocBrain", page_icon="📄", layout="wide")
+    
+    # --- JuanMa Sidebar ---
+    with st.sidebar:
+        st.image("https://via.placeholder.com/150x50/915BD8/FDFAF7?text=Pactora", use_column_width=True)
+        st.markdown("---")
+        st.markdown("### Raíz Pactora")
+        
+        juanma_enabled = st.toggle("🤖 Activar Agente (JuanMa)", value=st.session_state.get('juanma_enabled', False))
+        st.session_state['juanma_enabled'] = juanma_enabled
+        
+        if juanma_enabled:
+            has_contract = 'current_contract_text' in st.session_state
+            already_analyzed = st.session_state.get('juanma_analyzed', False)
+            
+            if has_contract and not already_analyzed:
+                with st.spinner("JuanMa está analizando el contrato..."):
+                    run_juanma_autonomous_analysis()
+                st.success("✅ Agente habilitado: JuanMa está listo para actuar.")
+            elif has_contract and already_analyzed:
+                st.success("✅ Agente habilitado: JuanMa está listo para actuar.")
+                if st.button("🔄 Re-analizar Documento"):
+                    st.session_state['juanma_analyzed'] = False
+                    if "messages" in st.session_state:
+                        st.session_state.messages = [m for m in st.session_state.messages if not m.get("is_juanma")]
+                    st.rerun()
+            else:
+                st.info("JuanMa está en espera.\nCarga un contrato en la pestaña de Ingesta para que pueda actuar.")
+        else:
+            st.caption("Activa el agente para análisis autónomo de contratos.")
+        
+        st.markdown("---")
+        st.markdown("**Versión:** Pactora v1.0")
+        st.markdown("**Equipo:** Trifuerza Energética")
+
     
     # Custom CSS for Unergy Branding (Fonts and Exact Colors)
     st.markdown(f"""
