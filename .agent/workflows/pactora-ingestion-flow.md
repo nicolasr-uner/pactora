@@ -1,3 +1,6 @@
+---
+description: Flujo de Ingesta y Procesamiento de Contratos
+---
 # Flujo de Ingesta y Procesamiento de Contratos
 1. Autenticación: Validar Google APIs (Drive/Calendar) vía `utils/auth_helper.py`.
 2. Carga: Usuario sube .docx o selecciona de Drive.
