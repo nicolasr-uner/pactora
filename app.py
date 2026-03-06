@@ -138,6 +138,20 @@ def main():
             
             uploaded_file = st.file_uploader("Subir Documento (.docx)", type=["docx"])
             
+            if uploaded_file is not None:
+                # Store the file in session state so we can redownload it
+                st.session_state['current_file_bytes'] = uploaded_file.getvalue()
+                st.session_state['current_file_name'] = uploaded_file.name
+                
+                st.info(f"📄 Archivo cargado: **{uploaded_file.name}**")
+                
+                st.download_button(
+                    label="⬇️ Descargar Archivo Original",
+                    data=st.session_state['current_file_bytes'],
+                    file_name=st.session_state['current_file_name'],
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                )
+            
             if st.button("Procesar y Analizar Riesgo") and uploaded_file is not None:
                 with st.spinner('Extrayendo texto y analizando con Gemini 1.5 Pro...'):
                     # 1. Extract text
