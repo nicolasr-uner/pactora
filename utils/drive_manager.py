@@ -125,3 +125,55 @@ def download_file(file_id: str, dest_path: str):
     except HttpError as error:
         print(f"Error descargando el archivo {file_id}: {error}")
         return False
+
+def download_file_to_io(file_id: str):
+    """Descarga un archivo de Drive y lo devuelve como un objeto BytesIO en memoria."""
+    try:
+        service = get_drive_service()
+        request = service.files().get_media(fileId=file_id)
+        file_io = io.BytesIO()
+        downloader = MediaIoBaseDownload(file_io, request)
+        done = False
+        while done is False:
+            status, done = downloader.next_chunk()
+        file_io.seek(0)
+        return file_io
+    except HttpError as error:
+        print(f"Error descargando el archivo {file_id} a memoria: {error}")
+        return None
+
+def get_recursive_files(folder_id: str, api_key: str = None):
+    """
+    Busca recursivamente todos los archivos (PDF/Word) dentro de una carpeta y sus subcarpetas.
+    """
+    all_files = []
+    try:
+        if api_key:
+            service = get_drive_service_with_apikey(api_key)
+        else:
+            service = get_drive_service()
+
+        # Listar archivos y carpetas en el nivel actual
+        query = f"'{folder_id}' in parents and trashed=false"
+        results = service.files().list(
+            q=query,
+            pageSize=1000,
+            fields="files(id, name, mimeType)",
+            includeItemsFromAllDrives=True,
+            supportsAllDrives=True
+        ).execute()
+
+        items = results.get('files', [])
+        for item in items:
+            if item['mimeType'] == 'application/vnd.google-apps.folder':
+                # Llamada recursiva
+                all_files.extend(get_recursive_files(item['id'], api_key))
+            else:
+                # Filtrar solo PDF y DOCX
+                if 'pdf' in item['mimeType'] or 'word' in item['mimeType']:
+                    all_files.append(item)
+        
+        return all_files
+    except HttpError as error:
+        print(f"Error en búsqueda recursiva para {folder_id}: {error}")
+        return []

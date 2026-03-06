@@ -1,7 +1,44 @@
 import streamlit as st
 
+def render_sidebar_chat():
+    """Renderiza el chatbot contextual en la barra lateral."""
+    if st.session_state.get('sidebar_chat_open'):
+        with st.sidebar:
+            st.header(f"🤖 Chat: {st.session_state.sidebar_chat_title}")
+            st.write("---")
+            
+            if 'sidebar_chat_history' not in st.session_state:
+                st.session_state.sidebar_chat_history = []
+            
+            # Historial
+            for msg in st.session_state.sidebar_chat_history:
+                with st.chat_message(msg['role'], avatar="🤖" if msg['role'] == "assistant" else None):
+                    st.markdown(msg['content'])
+            
+            # Input
+            user_input = st.chat_input("Pregunta sobre este contexto...", key="sidebar_chat_input")
+            if user_input:
+                st.session_state.sidebar_chat_history.append({"role": "user", "content": user_input})
+                with st.chat_message("user"):
+                    st.markdown(user_input)
+                
+                with st.chat_message("assistant", avatar="🤖"):
+                    with st.spinner("Pactora responde..."):
+                        ans = st.session_state.chatbot.ask_question(user_input)
+                        st.markdown(ans)
+                st.session_state.sidebar_chat_history.append({"role": "assistant", "content": ans})
+
+            if st.button("Cerrar Chat IA", use_container_width=True):
+                st.session_state.sidebar_chat_open = False
+                st.rerun()
+
 def main():
     st.set_page_config(page_title="Pactora CLM - Unergy", layout="wide")
+    
+    # Inicializar chatbot global
+    if 'chatbot' not in st.session_state:
+        from core.rag_chatbot import RAGChatbot
+        st.session_state.chatbot = RAGChatbot()
     
     # Ocultar menú de Streamlit, footer y botón Deploy (Vista Administrador)
     hide_st_style = """
@@ -108,8 +145,32 @@ def main():
                                 st.rerun()
                         with f_col2:
                             if st.button("🤖 IA", key=f"bot_f_{folder['id']}", help="Analizar contenido de carpeta"):
-                                st.session_state.rag_context = folder['id']
-                                st.success("Contexto RAG configurado para esta carpeta. Ve a la pestaña 'Asistente RAG'.")
+                                with st.spinner("Analizando carpeta y documentos..."):
+                                    from utils.drive_manager import get_recursive_files, download_file_to_io
+                                    from utils.file_parser import extract_text_from_file
+                                    import io
+                                    
+                                    # Descubrimiento recursivo
+                                    files_to_ingest = get_recursive_files(folder['id'], api_key=st.session_state.get('drive_api_key'))
+                                    ingest_data = []
+                                    for f in files_to_ingest:
+                                        f_io = download_file_to_io(f['id'])
+                                        if f_io:
+                                            text = extract_text_from_file(f_io, f['name'])
+                                            if not text.startswith("Error"):
+                                                ingest_data.append((text, f['name']))
+                                    
+                                    if ingest_data:
+                                        success, msg = st.session_state.chatbot.vector_ingest_multiple(ingest_data)
+                                        if success:
+                                            st.session_state.sidebar_chat_open = True
+                                            st.session_state.sidebar_chat_title = folder['name']
+                                            st.session_state.sidebar_chat_history = []
+                                            st.success(f"Analizadas {len(ingest_data)} documentos en '{folder['name']}'")
+                                        else:
+                                            st.error(f"Error IA: {msg}")
+                                    else:
+                                        st.warning("No se encontraron documentos válidos en esta carpeta.")
                         with f_col3:
                             with st.popover("✏️"):
                                 new_name = st.text_input("Nuevo Nombre", value=folder['name'], key=f"ren_f_{folder['id']}")
@@ -139,8 +200,27 @@ def main():
                             st.link_button("🔗 Ver", doc.get('webViewLink', '#'))
                         with d_col3:
                             if st.button("🤖 IA", key=f"bot_d_{doc['id']}", help="Analizar documento"):
-                                st.session_state.rag_context = doc['id']
-                                st.success("Contexto RAG configurado para este documento. Ve a la pestaña 'Asistente RAG'.")
+                                with st.spinner("Leyendo documento..."):
+                                    from utils.drive_manager import download_file_to_io
+                                    from utils.file_parser import extract_text_from_file
+                                    import io
+                                    
+                                    f_io = download_file_to_io(doc['id'])
+                                    if f_io:
+                                        text = extract_text_from_file(f_io, doc['name'])
+                                        if not text.startswith("Error"):
+                                            success, msg = st.session_state.chatbot.vector_ingest(text)
+                                            if success:
+                                                st.session_state.sidebar_chat_open = True
+                                                st.session_state.sidebar_chat_title = doc['name']
+                                                st.session_state.sidebar_chat_history = []
+                                                st.success("Documento cargado al asistente.")
+                                            else:
+                                                st.error(f"Error IA: {msg}")
+                                        else:
+                                            st.error(text)
+                                    else:
+                                        st.error("No se pudo descargar el archivo.")
                         with d_col4:
                             with st.popover("✏️"):
                                 new_name2 = st.text_input("Nuevo Nombre", value=doc['name'], key=f"ren_d_{doc['id']}")
@@ -293,6 +373,9 @@ def main():
                 st.error(str(e))
             except Exception as e:
                 st.error(f"Error al conectar: {str(e)}")
+
+    # Renderizar el chat lateral si está abierto (Independiente de pestañas)
+    render_sidebar_chat()
 
 if __name__ == "__main__":
     main()
