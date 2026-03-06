@@ -117,6 +117,14 @@ def main():
     label[data-testid="stWidgetLabel"] {
         color: #FDFAF7 !important;
         font-weight: 700;
+        font-family: 'Lato', sans-serif !important;
+    }
+    
+    /* Sidebar Text (Radio labels and markdown) */
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p, 
+    [data-testid="stSidebar"] .stRadio label p {
+        color: #FDFAF7 !important;
+        font-family: 'Lato', sans-serif !important;
     }
 
     /* Cards Style (Glassmorphism + Unergy touch) */
@@ -384,23 +392,25 @@ def main():
         m_col1, m_col2 = st.columns(2)
         with m_col1:
             st.markdown('<div class="factora-card">', unsafe_allow_html=True)
-            st.subheader("Distribución por Tipo")
+            st.subheader("Distribución por Proyecto")
             import pandas as pd
-            chart_data = pd.DataFrame({
-                'Tipo': ['PPA', 'EPC', 'OyM', 'NDA', 'MOU'],
-                'Cantidad': [8, 5, 4, 4, 3]
-            })
-            st.bar_chart(chart_data.set_index('Tipo'))
+            metrics_data = {
+                'Proyecto': ['Suno Solar', 'Pactora Dev', 'Unergy Asset 1', 'Solenium PPA', 'Comunidad Energética'],
+                'Contratos': [12, 8, 15, 6, 4],
+                'Riesgo_Promedio': [15, 22, 10, 35, 12]
+            }
+            df_metrics = pd.DataFrame(metrics_data)
+            st.bar_chart(df_metrics.set_index('Proyecto')['Contratos'])
             st.markdown('</div>', unsafe_allow_html=True)
             
         with m_col2:
             st.markdown('<div class="factora-card">', unsafe_allow_html=True)
-            st.subheader("Nivel de Riesgo (Semáforo)")
-            risk_data = pd.DataFrame({
-                'Nivel': ['Bajo (Verde)', 'Medio (Amarillo)', 'Alto (Rojo)'],
-                'Contratos': [15, 6, 3]
+            st.subheader("Evolución de Cumplimiento (vs Mes Anterior)")
+            trend_data = pd.DataFrame({
+                'Mes': ['Ene', 'Feb', 'Mar'],
+                'Cumplimiento': [82, 85, 88]
             })
-            st.area_chart(risk_data.set_index('Nivel'))
+            st.line_chart(trend_data.set_index('Mes'))
             st.markdown('</div>', unsafe_allow_html=True)
 
     elif nav_opt == "📄 Plantillas":
@@ -437,11 +447,32 @@ def main():
                 st.write(f"**Última actualización:** {t['last']}")
                 c1, c2 = st.columns(2)
                 with c1:
-                    if st.button(f"Previsualizar {t['name']}", key=f"pre_{t['name']}"):
-                        st.info("Generando previsualización...")
-                        st.markdown("> [!NOTE]\n> Esta es una vista previa de la estructura del documento PPA...")
+                    # Fix preview logic
+                    if st.button(f"Previsualizar {t['name']}", key=f"preview_btn_{t['name']}"):
+                        st.session_state[f"preview_{t['name']}"] = True
+                    
+                    if st.session_state.get(f"preview_{t['name']}"):
+                        st.info(f"Vista previa de: {t['name']}")
+                        st.markdown(f"""
+                        **Contrato de {t['type']}**
+                        ---
+                        CLÁUSULA 1: OBJETO.
+                        La presente plantilla define los términos para {t['type']} bajo la normativa CREG...
+                        """)
+                        if st.button("Cerrar Vista Previa", key=f"close_pre_{t['name']}"):
+                            st.session_state[f"preview_{t['name']}"] = False
+                            st.rerun()
+
                 with c2:
-                    st.download_button(f"Descargar {t['name']}", data=b"Contenido simulado", file_name=t['name'], key=f"dl_{t['name']}")
+                    # Real binary data simulation if possible, or just better mock
+                    mock_content = f"Contenido maestro de la plantilla {t['name']}".encode('utf-8')
+                    st.download_button(
+                        label=f"📥 Descargar {t['type']}",
+                        data=mock_content,
+                        file_name=t['name'],
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        key=f"download_btn_{t['name']}"
+                    )
 
     elif nav_opt == "⚖️ Análisis Legal":
         st.header("⚖️ Ingeniería Legal & Semáforo de Riesgo")
@@ -505,7 +536,7 @@ def main():
                 st.warning("⚠️ Por favor, carga un documento primero.")
 
     elif nav_opt == "🧠 Chatbot":
-        st.header("🧠 Asistente RAG Principal")
+        st.header("🧠 JuanMa - Asistente RAG")
         gemini_key = st.session_state.get('gemini_api_key')
         if not gemini_key:
             st.warning("Configura Gemini en Ajustes.")
