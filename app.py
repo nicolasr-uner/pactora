@@ -261,7 +261,17 @@ def main():
         # --- GEMINI API KEY ---
         st.subheader("🤖 Clave API de Gemini")
         st.write("Necesaria para el Asistente RAG y la búsqueda semántica.")
+        
+        # Auto-cargar desde secrets.toml si aún no esta en sesión
+        if 'gemini_api_key' not in st.session_state:
+            try:
+                st.session_state.gemini_api_key = st.secrets.get("GEMINI_API_KEY", "")
+            except Exception:
+                st.session_state.gemini_api_key = ""
+        
         current_key = st.session_state.get('gemini_api_key', '')
+        key_status = "✅ Clave activa" if current_key else "❌ Sin configurar"
+        st.info(f"Estado: **{key_status}**")
         gemini_key_input = st.text_input("Gemini API Key", value=current_key, type="password", key="gemini_key_input")
         if st.button("💾 Guardar Gemini API Key", type="primary"):
             st.session_state.gemini_api_key = gemini_key_input

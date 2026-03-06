@@ -11,6 +11,9 @@ venv.bak/
 credentials.json
 token.json
 
+# Streamlit secrets (CRITICAL: nunca subir al repositorio)
+.streamlit/secrets.toml
+
 # ChromaDB
 chroma_db/
 .chroma/

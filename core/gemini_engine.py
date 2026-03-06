@@ -2,12 +2,21 @@ import os
 import json
 import google.generativeai as genai
 
-# Setup Gemini API key (Should be configured in environment or secrets)
-# For Streamlit, st.secrets can be used, but for now we expect it in the environment
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+def _load_gemini_key():
+    """Loads Gemini API key from env or Streamlit secrets (secrets.toml)."""
+    key = os.environ.get("GEMINI_API_KEY")
+    if not key:
+        try:
+            import streamlit as st
+            key = st.secrets.get("GEMINI_API_KEY")
+        except Exception:
+            pass
+    return key
+
+GEMINI_API_KEY = _load_gemini_key()
 
 def configure_gemini(api_key: str = None):
-    """Configures the Gemini API key. Accepts an explicit key or falls back to env var."""
+    """Configures the Gemini API key. Accepts an explicit key or falls back to env/secrets."""
     key = api_key or GEMINI_API_KEY
     if key:
         genai.configure(api_key=key)
@@ -16,6 +25,7 @@ def configure_gemini(api_key: str = None):
 
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
+
 
 
 def get_extraction_prompt(contract_type: str) -> str:
