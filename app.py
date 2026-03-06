@@ -1,3 +1,9 @@
+import os
+from dotenv import load_dotenv
+
+# Load environment variables before any other imports that might depend on them
+load_dotenv()
+
 import streamlit as st
 
 def render_sidebar_chat():
