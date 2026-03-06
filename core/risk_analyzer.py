@@ -37,7 +37,7 @@ Debes devolver el resultado estrictamente en formato JSON con la siguiente estru
 A continuación el contrato:
 """
     try:
-        model = genai.GenerativeModel('models/gemini-1.5-pro')
+        model = genai.GenerativeModel('gemini-1.5-flash')
         
         full_prompt = prompt + "\n\n" + content
         

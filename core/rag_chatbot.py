@@ -8,94 +8,122 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.chains import create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.prompts import ChatPromptTemplate
-
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+from typing import List, Dict, Tuple, Optional, Any
 
 class RAGChatbot:
-    def __init__(self, persist_directory="./chroma_db"):
+    def __init__(self, persist_directory: str = "./chroma_db", api_key: Optional[str] = None):
         self.persist_directory = persist_directory
-        if GEMINI_API_KEY:
-            self.embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key=GEMINI_API_KEY)
-            self.llm = ChatGoogleGenerativeAI(model="gemini-1.5-pro", google_api_key=GEMINI_API_KEY, temperature=0.2)
+        self.api_key = api_key or os.environ.get("GEMINI_API_KEY")
+        
+        if self.api_key:
+            self.embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key=self.api_key)
+            self.llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", google_api_key=self.api_key, temperature=0.2)
         else:
             self.embeddings = None
             self.llm = None
         
-        self.vectorstore = None
-        
-    def vector_ingest_multiple(self, documents_list: list):
+        self.vectorstore: Any = None
+        self._initialize_vectorstore()
+
+    def _initialize_vectorstore(self):
+        """Initializes the vectorstore from the persistence directory if it exists."""
+        if self.embeddings:
+            try:
+                if os.path.exists(self.persist_directory):
+                    self.vectorstore = Chroma(
+                        persist_directory=self.persist_directory,
+                        embedding_function=self.embeddings
+                    )
+            except Exception:
+                self.vectorstore = None
+
+    def vector_ingest_multiple(self, documents_list: List[Tuple], metadata_global: Optional[Dict[str, Any]] = None):
         """
-        Takes a list of (text_content, filename) tuples, splits them, and stores in ChromaDB.
+        Takes a list of (text_content, filename, metadata) tuples, splits them, and adds to the persistent ChromaDB.
         """
         if not self.embeddings:
             return False, "GEMINI_API_KEY no configurada."
             
         try:
             all_splits = []
-            text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+            text_splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=300)
             
-            for text_content, filename in documents_list:
-                # We save temporary text file to use TextLoader
-                temp_file = f"temp_{filename}.txt"
-                with open(temp_file, "w", encoding="utf-8") as f:
-                    f.write(text_content)
-                    
-                loader = TextLoader(temp_file, encoding="utf-8")
-                documents = loader.load()
-                splits = text_splitter.split_documents(documents)
-                all_splits.extend(splits)
+            for doc_data in documents_list:
+                if len(doc_data) == 3:
+                    text_content, filename, meta = doc_data
+                else:
+                    text_content, filename = doc_data
+                    meta = {}
+
+                # Robust metadata handling
+                clean_meta = {}
+                if isinstance(meta, dict):
+                    clean_meta = meta.copy()
                 
-                # Clean up
-                os.remove(temp_file)
+                if metadata_global:
+                    clean_meta.update(metadata_global)
+                
+                clean_meta["source"] = filename
+                
+                splits = text_splitter.create_documents([text_content], metadatas=[clean_meta])
+                all_splits.extend(splits)
             
             if not all_splits:
-                return False, "No se extrajo texto de los documentos."
+                return False, "No se extrajo texto válido."
 
-            # Reiniciar vectorstore para el nuevo contexto
-            if os.path.exists(self.persist_directory):
-                import shutil
-                shutil.rmtree(self.persist_directory)
-                
-            self.vectorstore = Chroma.from_documents(
-                documents=all_splits, 
-                embedding=self.embeddings,
-                persist_directory=self.persist_directory
-            )
+            if self.vectorstore is None:
+                self.vectorstore = Chroma.from_documents(
+                    documents=all_splits, 
+                    embedding=self.embeddings,
+                    persist_directory=self.persist_directory
+                )
+            else:
+                self.vectorstore.add_documents(all_splits)
             
-            return True, f"Se han vectorizado {len(documents_list)} documentos con éxito."
+            return True, f"Se han indexado {len(documents_list)} documentos."
             
         except Exception as e:
             return False, str(e)
 
-    def vector_ingest(self, text_content: str):
-        return self.vector_ingest_multiple([(text_content, "contract")])
-            
-    def ask_question(self, question: str) -> str:
+    def vector_ingest(self, text_content: str, filename: str = "doc", metadata: Optional[Dict[str, Any]] = None):
+        return self.vector_ingest_multiple([(text_content, filename, metadata or {})])
+
+    def ask_question(self, question: str, filter_metadata: Optional[Dict[str, Any]] = None) -> str:
         """
-        Queries the vector database strictly returning answers based on context.
+        Queries the vector database. Allows metadata filtering.
         """
-        if not self.vectorstore or not self.llm:
-            return "El chatbot no ha sido inicializado o no hay un documento cargado."
+        if not self.llm:
+            return "Gemini LLM no inicializado (revisa tu API Key)."
             
+        context_text = ""
+        if self.vectorstore is not None:
+            try:
+                search_kwargs: Dict[str, Any] = {"k": 5}
+                if filter_metadata:
+                    search_kwargs["filter"] = filter_metadata
+                
+                docs = self.vectorstore.similarity_search(question, **search_kwargs)
+                context_text = "\n---\n".join([d.page_content for d in docs])
+            except Exception:
+                pass
+
         system_prompt = (
-            "Eres un asistente legal experto en contratos de energía. "
-            "Usa los siguientes fragmentos de contexto recuperado para responder la pregunta. "
-            "Si no sabes la respuesta o no está en el documento, di que no lo sabes. "
-            "Usa un tono profesional, preciso y legalmente responsable.\n\n"
-            "{context}"
+            "Eres JuanMa, el Cerebro Sectorial Energético de Unergy.\n\n"
+            "INSTRUCCIONES:\n"
+            "1. Si hay CONTEXTO abajo, úsalo para responder con precisión.\n"
+            "2. Si la información no está en el contexto o no hay contexto, responde con tu conocimiento general de IA de forma profesional.\n"
+            "3. Identifica riesgos regulatorios si es relevante.\n\n"
+            "CONTEXTO DEL WORKSPACE:\n{context}"
         )
         
         prompt = ChatPromptTemplate.from_messages([
             ("system", system_prompt),
-            ("human", "{input}"),
+            ("human", "{question}"),
         ])
         
-        retriever = self.vectorstore.as_retriever(search_kwargs={"k": 5})
-        question_answer_chain = create_stuff_documents_chain(self.llm, prompt)
-        rag_chain = create_retrieval_chain(retriever, question_answer_chain)
-        
         try:
-            response = rag_chain.invoke({"input": question})
-            return response["answer"]
+            formatted_prompt = prompt.format_messages(context=context_text, question=question)
+            response = self.llm.invoke(formatted_prompt)
+            return response.content
         except Exception as e:
-            return f"Error procesando la consulta RAG: {e}"
+            return f"Error en JuanMa: {e}"

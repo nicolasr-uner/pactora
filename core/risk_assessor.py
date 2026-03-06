@@ -52,7 +52,7 @@ Texto del Contrato:
 """
     
     try:
-        model = genai.GenerativeModel('models/gemini-1.5-pro')
+        model = genai.GenerativeModel('gemini-1.5-flash')
         response = model.generate_content(prompt)
         response_text = response.text.strip()
         
