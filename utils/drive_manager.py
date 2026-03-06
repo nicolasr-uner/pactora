@@ -1,182 +1,98 @@
-from googleapiclient.errors import HttpError
-from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
-from utils.auth_helper import get_drive_service, get_drive_service_with_apikey
 import io
+import os
+from googleapiclient.http import MediaIoBaseDownload
+from typing import Optional, Dict, Any, List
 
-def get_folder_metadata(folder_id: str, api_key: str = None):
-    """Obtiene el nombre y detalles de una carpeta específica."""
-    try:
-        if api_key:
-            service = get_drive_service_with_apikey(api_key)
-        else:
-            service = get_drive_service()
-            
-        file = service.files().get(fileId=folder_id, fields="id, name", supportsAllDrives=True).execute()
-        return file
-    except HttpError as error:
-        print(f"Error obteniendo metadata de {folder_id}: {error}")
-        return {"id": folder_id, "name": "Carpeta Desconocida"}
+from utils.auth_helper import get_drive_service
 
-def get_folder_contents(folder_id: str, api_key: str = None):
+def search_documents(query: str = "", max_results: int = 20) -> List[Dict]:
     """
-    Lista el contenido (carpetas y archivos soportados) DE UN SOLO NIVEL (sin recursión)
-    para emular un Explorador de Archivos real paso a paso.
+    Searches Google Drive for .docx files matching the query.
+    Returns a list of dicts with 'id', 'name', and 'modifiedTime'.
+    Always filters to .docx (Word) files only.
     """
+    service = get_drive_service()
+    if not service:
+        return []
+
     try:
-        if api_key:
-            service = get_drive_service_with_apikey(api_key)
+        # Build query: always .docx, optionally filter by name
+        mime_filter = "mimeType='application/vnd.openxmlformats-officedocument.wordprocessingml.document'"
+        if query.strip():
+            full_query = f"{mime_filter} and name contains '{query.strip()}' and trashed=false"
         else:
-            service = get_drive_service()
-            
-        query = f"'{folder_id}' in parents and trashed=false"
-        
+            full_query = f"{mime_filter} and trashed=false"
+
         results = service.files().list(
-            q=query,
-            pageSize=1000,
-            fields="nextPageToken, files(id, name, mimeType, webViewLink, createdTime)",
-            orderBy="folder, name",
-            includeItemsFromAllDrives=True,
-            supportsAllDrives=True
+            q=full_query,
+            pageSize=max_results,
+            orderBy="modifiedTime desc",
+            fields="files(id, name, modifiedTime, size)"
         ).execute()
-        
+
         return results.get('files', [])
-    except HttpError as error:
-        print(f"Ocurrió un error en la API de Drive al listar contenidos: {error}")
+
+    except Exception as e:
+        print(f"Error searching Drive documents: {e}")
         return []
 
-def create_folder(folder_name: str, parent_id: str):
-    """Crea una subcarpeta nueva."""
-    try:
-        service = get_drive_service()
-        file_metadata = {
-            'name': folder_name,
-            'mimeType': 'application/vnd.google-apps.folder',
-            'parents': [parent_id]
-        }
-        folder = service.files().create(body=file_metadata, fields='id, name, webViewLink').execute()
-        return folder
-    except HttpError as error:
-        print(f"Ocurrió un error al crear la carpeta '{folder_name}': {error}")
-        return None
 
-def rename_item(item_id: str, new_name: str):
-    """Renombra un archivo o carpeta."""
-    try:
-        service = get_drive_service()
-        file_metadata = {'name': new_name}
-        updated_file = service.files().update(
-            fileId=item_id,
-            body=file_metadata,
-            fields='id, name',
-            supportsAllDrives=True
-        ).execute()
-        return updated_file
-    except HttpError as error:
-        print(f"Ocurrió un error al renombrar: {error}")
-        return None
-
-def delete_item(item_id: str):
-    """Mueve un archivo o carpeta a la papelera (Soft Delete)."""
-    try:
-        service = get_drive_service()
-        file_metadata = {'trashed': True}
-        updated_file = service.files().update(
-            fileId=item_id,
-            body=file_metadata,
-            fields='id, trashed',
-            supportsAllDrives=True
-        ).execute()
-        return updated_file
-    except HttpError as error:
-        print(f"Ocurrió un error al eliminar: {error}")
-        return None
-
-def upload_file(file_bytes, filename: str, parent_id: str, mime_type: str = 'application/octet-stream'):
-    """Sube un archivo a una carpeta específica."""
-    try:
-        service = get_drive_service()
-        file_metadata = {
-            'name': filename,
-            'parents': [parent_id]
-        }
-        media = MediaIoBaseUpload(io.BytesIO(file_bytes), mimetype=mime_type, resumable=True)
-        uploaded_file = service.files().create(
-            body=file_metadata,
-            media_body=media,
-            fields='id, name, webViewLink, mimeType, createdTime',
-            supportsAllDrives=True
-        ).execute()
-        return uploaded_file
-    except HttpError as error:
-        print(f"Ocurrió un error al subir el archivo: {error}")
-        return None
-
-def download_file(file_id: str, dest_path: str):
-    """Descarga archivo desde Drive al disco local."""
-    try:
-        service = get_drive_service()
-        request = service.files().get_media(fileId=file_id)
-        fh = io.FileIO(dest_path, 'wb')
-        downloader = MediaIoBaseDownload(fh, request)
-        done = False
-        while done is False:
-            status, done = downloader.next_chunk()
-        return True
-    except HttpError as error:
-        print(f"Error descargando el archivo {file_id}: {error}")
-        return False
-
-def download_file_to_io(file_id: str, api_key: str = None):
-    """Descarga un archivo de Drive y lo devuelve como un objeto BytesIO en memoria."""
-    try:
-        if api_key:
-            service = get_drive_service_with_apikey(api_key)
-        else:
-            service = get_drive_service()
-        request = service.files().get_media(fileId=file_id)
-        file_io = io.BytesIO()
-        downloader = MediaIoBaseDownload(file_io, request)
-        done = False
-        while done is False:
-            status, done = downloader.next_chunk()
-        file_io.seek(0)
-        return file_io
-    except HttpError as error:
-        print(f"Error descargando el archivo {file_id} a memoria: {error}")
-        return None
-
-def get_recursive_files(folder_id: str, api_key: str = None):
+def fetch_document(file_id: str) -> Optional[bytes]:
     """
-    Busca recursivamente todos los archivos (PDF/Word) dentro de una carpeta y sus subcarpetas.
+    Downloads a document from Google Drive in a read-only manner.
+    Used for ingesting contracts.
     """
-    all_files = []
-    try:
-        if api_key:
-            service = get_drive_service_with_apikey(api_key)
-        else:
-            service = get_drive_service()
-
-        # Listar archivos y carpetas en el nivel actual
-        query = f"'{folder_id}' in parents and trashed=false"
-        results = service.files().list(
-            q=query,
-            pageSize=1000,
-            fields="files(id, name, mimeType)",
-            includeItemsFromAllDrives=True,
-            supportsAllDrives=True
-        ).execute()
-
-        items = results.get('files', [])
-        for item in items:
-            if item['mimeType'] == 'application/vnd.google-apps.folder':
-                # Llamada recursiva
-                all_files.extend(get_recursive_files(item['id'], api_key))
-            else:
-                # Filtrar solo PDF y DOCX
-                if 'pdf' in item['mimeType'] or 'word' in item['mimeType']:
-                    all_files.append(item)
+    service = get_drive_service()
+    if not service:
+        return None
         
-        return all_files
-    except HttpError as error:
-        print(f"Error en búsqueda recursiva para {folder_id}: {error}")
-        return []
+    try:
+        request = service.files().get_media(fileId=file_id)
+        file_stream = io.BytesIO()
+        downloader = MediaIoBaseDownload(file_stream, request)
+        done = False
+        while done is False:
+            status, done = downloader.next_chunk()
+            
+        return file_stream.getvalue()
+    except Exception as e:
+        print(f"Error fetching document {file_id}: {e}")
+        return None
+
+
+def get_file_metadata(file_id: str) -> Optional[Dict]:
+    """Fetches basic metadata (name, size) for a given file ID."""
+    service = get_drive_service()
+    if not service:
+        return None
+    try:
+        return service.files().get(fileId=file_id, fields="id, name, modifiedTime, size").execute()
+    except Exception as e:
+        print(f"Error fetching metadata for {file_id}: {e}")
+        return None
+
+
+def create_project_folder(project_name: str, parent_folder_id: Optional[str] = None) -> Optional[str]:
+    """
+    Creates a new folder for the specific project in Google Drive.
+    Returns the ID of the newly created folder.
+    """
+    service = get_drive_service()
+    if not service:
+        return None
+        
+    folder_metadata: Dict[str, Any] = {
+        'name': project_name,
+        'mimeType': 'application/vnd.google-apps.folder'
+    }
+    
+    if parent_folder_id:
+        folder_metadata['parents'] = [parent_folder_id]
+        
+    try:
+        folder = service.files().create(body=folder_metadata, fields='id').execute()
+        return folder.get('id')
+    except Exception as e:
+        print(f"Error creating folder {project_name}: {e}")
+        return None
+
