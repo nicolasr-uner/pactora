@@ -1,16 +1,7 @@
 import streamlit as st
+from utils.auth_helper import authenticate_google_apis
 
 st.set_page_config(page_title="Pactora - Unergy DocBrain", page_icon="📝", layout="wide")
-
-# Diseño de paleta Unergy
-st.markdown("""
-<style>
-    /* Púrpura Enérgico #915BD8, Avena #FDFAF7, Amarillo Solar #F6FF72 */
-    .stApp {
-        background-color: #FDFAF7;
-    }
-</style>
-""", unsafe_allow_html=True)
 
 st.title("Pactora - Unergy DocBrain")
 
@@ -35,4 +26,14 @@ with tab_rag:
 
 with tab_config:
     st.header("Autenticación")
-    st.write("Conexiones y credenciales.")
+    st.write("Inicia sesión de forma segura para conectar con **Google Drive** (Ingesta Read-Only) y **Calendar** (Agendamiento).")
+    
+    if st.button("Conectar con Google Workspace"):
+        with st.spinner("Autenticando..."):
+            services = authenticate_google_apis()
+            if services:
+                st.session_state['google_services'] = services
+                st.success("¡Autenticación exitosa! Ya puedes cargar documentos o sincronizar eventos.")
+    
+    if 'google_services' in st.session_state:
+        st.info("Estado: 🟢 Conectado de forma segura.")
