@@ -21,10 +21,11 @@ client_secret.json
 .vscode/
 .idea/
 
-# DB
+# DB / Vectors
 chroma_db/
 *.db
 *.sqlite3
 
 # Agent
 .agent_logs/
+*.log
