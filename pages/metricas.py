@@ -64,7 +64,22 @@ if stats["sources"]:
     if st.session_state.portfolio_analysis:
         st.markdown(st.session_state.portfolio_analysis)
 else:
-    st.info(
-        "No hay contratos indexados aun. Conecta Google Drive en **Ajustes** "
-        "para que JuanMitaBot indexe automaticamente todos los contratos."
-    )
+    if "drive_root_id" in st.session_state:
+        st.warning("Drive conectado pero sin contratos indexados aun.")
+        if st.button("Indexar contratos del Drive ahora", use_container_width=True):
+            from utils.shared import run_drive_indexation
+            with st.spinner("JuanMitaBot indexando contratos..."):
+                ok, msg = run_drive_indexation(
+                    st.session_state.drive_root_id,
+                    st.session_state.get("drive_api_key", "")
+                )
+            if ok:
+                st.success(msg)
+            else:
+                st.warning(msg)
+            st.rerun()
+    else:
+        st.info(
+            "No hay contratos indexados aun. Conecta Google Drive en **Ajustes** "
+            "para que JuanMitaBot indexe automaticamente todos los contratos."
+        )
