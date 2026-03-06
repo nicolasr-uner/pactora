@@ -416,7 +416,7 @@ def main():
                         else:
                             st.info("Este documento ya estaba indexado. Ve a ✏️ Editor para editarlo.")
 
-                    if st.button("🚀 Cargar e Indexar en JuanMa", type="primary"):
+                    if st.button("🚀 Cargar e Indexar en JuanMita", type="primary"):
                         with st.spinner(f"Descargando e indexando {selected_file['name']}..."):
                             # 1. Fetch from Drive
                             file_bytes = fetch_document(selected_file['id'])
