@@ -363,31 +363,71 @@ def main():
         # 📄 PLANTILLAS
         # ============================================================
         elif nav_opt == "📄 Plantillas":
-            st.header("📄 Biblioteca de Plantillas")
-            st.info("💡 Asegúrate de que los archivos .docx de las plantillas existan en la carpeta raíz del proyecto.")
-            plantillas = [
+            st.header("📄 Biblioteca de Plantillas (Google Drive)")
+            st.write("Gestiona y descarga las últimas versiones de las plantillas maestras de Unergy.")
+
+            # Hardcoded expected templates to look for
+            target_templates = [
                 {"nombre": "PPA_Standard_V2.docx", "tipo": "PPA", "version": "v2.1"},
                 {"nombre": "EPC_Contrato_Base.docx", "tipo": "EPC", "version": "v1.3"},
                 {"nombre": "O&M_Marco_General.docx", "tipo": "O&M", "version": "v1.0"},
             ]
-            for p in plantillas:
+
+            if st.button("🔄 Sincronizar Biblioteca desde Drive", help="Busca las versiones más recientes en la nube"):
+                with st.spinner("Sincronizando con Drive..."):
+                    from utils.drive_manager import search_documents
+                    # Initialize or update the mapping in session state
+                    if 'template_drive_map' not in st.session_state:
+                        st.session_state['template_drive_map'] = {}
+                    
+                    found_count = 0
+                    for t in target_templates:
+                        results = search_documents(query=t["nombre"])
+                        if results:
+                            # Match the first one found
+                            st.session_state['template_drive_map'][t["nombre"]] = results[0]['id']
+                            found_count += 1
+                    
+                    if found_count > 0:
+                        st.success(f"Se sincronizaron {found_count} plantillas con éxito.")
+                    else:
+                        st.warning("No se encontraron plantillas con los nombres esperados en Drive.")
+
+            st.divider()
+
+            template_map = st.session_state.get('template_drive_map', {})
+
+            for p in target_templates:
                 col_a, col_b, col_c = st.columns([5, 2, 2])
                 col_a.markdown(f"📄 **{p['nombre']}** `{p['tipo']}`")
                 col_b.markdown(f'<span class="version-badge">{p["version"]}</span>', unsafe_allow_html=True)
                 
-                # Check for file existence to avoid crashing
-                file_path = p['nombre']
-                if os.path.exists(file_path):
-                    with open(file_path, "rb") as file:
-                        btn = col_c.download_button(
-                            label="Descargar",
-                            data=file,
+                drive_id = template_map.get(p['nombre'])
+                
+                if drive_id:
+                    # To use st.download_button, we need the data. 
+                    # We'll offer a "Preparar Descarga" or fetch on the fly if small.
+                    # For legal docs (~100KB), fetching on the fly is acceptable.
+                    if col_c.button(f"Preparar `{p['nombre']}`", key=f"fetch_{p['nombre']}"):
+                        with st.spinner("Descargando desde Drive..."):
+                            from utils.drive_manager import fetch_document
+                            file_bytes = fetch_document(drive_id)
+                            if file_bytes:
+                                st.session_state[f"bytes_{p['nombre']}"] = file_bytes
+                                st.success("¡Listo!")
+                    
+                    if f"bytes_{p['nombre']}" in st.session_state:
+                        col_c.download_button(
+                            label="⬇️ Descargar",
+                            data=st.session_state[f"bytes_{p['nombre']}"],
                             file_name=p['nombre'],
                             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                             key=f"dl_{p['nombre']}"
                         )
                 else:
-                    col_c.warning("No encontrado")
+                    col_c.info("No sincronizado")
+
+
 
 
         # ============================================================
