@@ -1,0 +1,21 @@
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Google API Credentials (CRITICAL for Suno/Bermuda privacy)
+credentials.json
+token.json
+
+# ChromaDB
+chroma_db/
+.chroma/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
