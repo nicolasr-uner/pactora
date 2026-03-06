@@ -89,36 +89,64 @@ def main():
             risk = st.session_state['risk_data']
             policies_df = st.session_state.get('approved_policies', pd.DataFrame())
             
+            # Filtros de Vista
+            st.subheader("Filtros de Portfolio")
+            col_filter_1, col_filter_2 = st.columns(2)
+            with col_filter_1:
+                filtro_tipo = st.selectbox("Filtrar por Tipo de Contrato", ["Todos", st.session_state.get('last_contract_type', 'PPA')])
+            with col_filter_2:
+                filtro_riesgo = st.selectbox("Filtrar por Nivel de Riesgo", ["Todos", "ROJO", "AMARILLO", "VERDE"])
+                
+            st.divider()
+                
             # Use columns to create a clean dashboard feel
             col1, col2, col3 = st.columns(3)
             with col1:
-                st.metric("Contratos Procesados", "1")
+                st.metric("Contratos Procesados", "1" if filtro_tipo == "Todos" or filtro_tipo == st.session_state.get('last_contract_type') else "0")
             with col2:
                 nivel = risk.get("Nivel", "VERDE")
                 color = COLOR_GREEN if nivel == "VERDE" else (COLOR_YELLOW if nivel == "AMARILLO" else COLOR_RED)
-                st.markdown(f"### Riesgo Actual: <span style='color:{color};'>{nivel}</span>", unsafe_allow_html=True)
+                if (filtro_riesgo == "Todos" or filtro_riesgo == nivel):
+                    st.markdown(f"### Riesgo Actual: <span style='color:{color};'>{nivel}</span>", unsafe_allow_html=True)
+                else:
+                    st.markdown("### Riesgo Actual: N/A", unsafe_allow_html=True)
             with col3:
                 polizas_count = len(policies_df) if not policies_df.empty else 0
-                st.metric("Pólizas Activas", polizas_count)
+                st.metric("Pólizas Activas (Acumulado)", polizas_count)
                 
             st.divider()
-            st.subheader("Exportar Resumen para Investor Due Diligence")
             
-            # Simple Dictionary mock based on DataFrame for report generation
-            metrics_dict = {row["Campo"]: row["Valor Sugerido"] for _, row in metrics_df.iterrows()}
-            policies_list = policies_df.to_dict('records') if not policies_df.empty else []
-            contract_type = st.session_state.get('last_contract_type', 'PPA (Default)')
+            col_rep1, col_rep2 = st.columns(2)
+            with col_rep1:
+                st.subheader("Reporte de Due Diligence (Completo)")
+                # Simple Dictionary mock based on DataFrame for report generation
+                metrics_dict = {row["Campo"]: row["Valor Sugerido"] for _, row in metrics_df.iterrows()}
+                policies_list = policies_df.to_dict('records') if not policies_df.empty else []
+                contract_type = st.session_state.get('last_contract_type', 'PPA (Default)')
+                
+                report_md = generate_investor_report(contract_type, metrics_dict, policies_list, risk)
+                
+                st.download_button(
+                    label="⬇️ Descargar Informe Due Diligence (.md)",
+                    data=report_md,
+                    file_name=f"Informe_{contract_type.replace(' ', '_')}.md",
+                    mime="text/markdown"
+                )
+            with col_rep2:
+                st.subheader("Avisos y Riesgos Legales")
+                st.write("Descarga únicamente el análisis de riesgo y compliance para el comité.")
+                
+                # Crear un mini-reporte solo de riesgos
+                alertas_text = "\\n".join([f"- {a}" for a in risk.get('Alertas', [])])
+                risk_md = f"# Reporte de Riesgo: {contract_type}\\n\\n## Nivel CREG/BMA: {nivel}\\n\\n**Justificación:**\\n{risk.get('Justificacion', 'N/A')}\\n\\n**Alertas Críticas:**\\n{alertas_text}"
+                st.download_button(
+                    label="⚠️ Descargar Alertas de Riesgo (.txt)",
+                    data=risk_md,
+                    file_name=f"Riesgos_{contract_type.replace(' ', '_')}.txt",
+                    mime="text/plain"
+                )
             
-            report_md = generate_investor_report(contract_type, metrics_dict, policies_list, risk)
-            
-            st.download_button(
-                label="Descargar Informe (.md)",
-                data=report_md,
-                file_name=f"Informe_{contract_type.replace(' ', '_')}.md",
-                mime="text/markdown"
-            )
-            
-            with st.expander("Ver Vista Previa del Informe"):
+            with st.expander("Ver Vista Previa del Informe de Due Diligence"):
                 st.markdown(report_md)
                 
         else:
@@ -266,26 +294,38 @@ def main():
         st.header("Chatbot RAG Contractual")
         st.write("Consulta detalles específicos sobre el contrato ingresado actualmente.")
         
-        if st.session_state.get('chatbot_ready', False):
+        # Enhanced validation for Chatbot and Vectorization state
+        is_ready = st.session_state.get('chatbot_ready', False)
+        has_text = 'current_contract_text' in st.session_state
+        
+        if is_ready and has_text:
             if "messages" not in st.session_state:
                 st.session_state.messages = []
 
+            # Display chat history
             for message in st.session_state.messages:
                 with st.chat_message(message["role"]):
                     st.markdown(message["content"])
 
+            # Input for new question
             if prompt := st.chat_input("Ej: ¿Cuál es la penalidad por retraso en el COD?"):
                 st.chat_message("user").markdown(prompt)
                 st.session_state.messages.append({"role": "user", "content": prompt})
                 
                 with st.chat_message("assistant"):
-                    with st.spinner("Pensando..."):
-                        response = st.session_state['chatbot'].ask_question(prompt)
-                        st.markdown(response)
-                        
-                st.session_state.messages.append({"role": "assistant", "content": response})
+                    with st.spinner("Buscando en el contrato y generando respuesta..."):
+                        try:
+                            response = st.session_state['chatbot'].ask_question(prompt)
+                            st.markdown(response)
+                            st.session_state.messages.append({"role": "assistant", "content": response})
+                        except Exception as e:
+                            error_msg = f"Hubo un error al consultar la IA: {str(e)}"
+                            st.error(error_msg)
+                            st.session_state.messages.append({"role": "assistant", "content": error_msg})
+        elif has_text and not is_ready:
+            st.warning("El documento se ha subido pero su procesamiento vectorial falló o está pendiente. Vuelve a analizarlo en la pestaña de Ingesta.")
         else:
-            st.warning("Debes subir y procesar un contrato en la pestaña 'Carga e Ingesta Legal' antes de poder consultar al Chatbot RAG.")
+            st.info("👋 ¡Hola! Para hablar conmigo, primero debes subir y procesar un contrato en la pestaña 'Carga e Ingesta Legal'.")
 
 if __name__ == "__main__":
     main()
