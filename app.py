@@ -380,18 +380,25 @@ def main():
                     if 'template_drive_map' not in st.session_state:
                         st.session_state['template_drive_map'] = {}
                     
-                    found_count = 0
-                    for t in target_templates:
-                        results = search_documents(query=t["nombre"])
-                        if results:
-                            # Match the first one found
-                            st.session_state['template_drive_map'][t["nombre"]] = results[0]['id']
-                            found_count += 1
-                    
-                    if found_count > 0:
-                        st.success(f"Se sincronizaron {found_count} plantillas con éxito.")
-                    else:
-                        st.warning("No se encontraron plantillas con los nombres esperados en Drive.")
+                    try:
+                        found_count = 0
+                        for t in target_templates:
+                            results = search_documents(query=t["nombre"])
+                            if results:
+                                # Match the first one found
+                                st.session_state['template_drive_map'][t["nombre"]] = results[0]['id']
+                                found_count += 1
+                        
+                        if found_count > 0:
+                            st.success(f"Se sincronizaron {found_count} plantillas con éxito.")
+                        else:
+                            st.warning("No se encontraron plantillas con los nombres esperados en Drive.")
+                    except FileNotFoundError as e:
+                        st.error(f"🔌 **Error de Conexión:** {str(e)}")
+                        st.info("💡 **Solución:** Descarga `credentials.json` desde Google Cloud Console y colócalo en la carpeta raíz del proyecto.")
+                    except Exception as e:
+                        st.error(f"❌ Error inesperado: {str(e)}")
+
 
             st.divider()
 
