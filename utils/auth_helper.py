@@ -42,9 +42,13 @@ def authenticate_google_apis():
     return creds
 
 def get_drive_service():
-    """Retorna el cliente para Google Drive API."""
+    """Retorna el cliente para Google Drive API usando OAuth2."""
     creds = authenticate_google_apis()
     return build('drive', 'v3', credentials=creds)
+
+def get_drive_service_with_apikey(api_key: str):
+    """Retorna el cliente para Google Drive API usando una API Key Pública."""
+    return build('drive', 'v3', developerKey=api_key)
 
 def get_calendar_service():
     """Retorna el cliente para Google Calendar API."""
