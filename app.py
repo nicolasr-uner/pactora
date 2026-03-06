@@ -25,7 +25,7 @@ def render_side_chat_panel(panel_col):
         st.markdown(f"""
         <div style="background:white; padding:16px; border-radius:16px;
              box-shadow:-4px 0 12px rgba(0,0,0,0.05); border-left:3px solid #915BD8;">
-            <h4 style="color:#2C2039; margin:0 0 4px 0;">🧠 JuanMa Contextual</h4>
+            <h4 style="color:#2C2039; margin:0 0 4px 0;">🧠 JuanMita Contextual</h4>
             <p style="font-size:0.75em; color:#915BD8; margin:0;">
                 <b>Contexto:</b> {st.session_state.get('sidebar_chat_title','Workspace')}
             </p>
@@ -49,11 +49,17 @@ def render_side_chat_panel(panel_col):
         if (st.session_state.sidebar_chat_history
                 and st.session_state.sidebar_chat_history[-1]["role"] == "user"):
             last_q = st.session_state.sidebar_chat_history[-1]["content"]
+            # Historial previo (excluye el último mensaje de usuario que acabamos de añadir)
+            history_for_llm = st.session_state.sidebar_chat_history[:-1]
             with chat_container:
                 with st.chat_message("assistant", avatar="🤖"):
-                    with st.spinner("Analizando contrato..."):
+                    with st.spinner("JuanMita analizando contratos..."):
                         filter_meta = st.session_state.get('sidebar_chat_filter')
-                        ans = st.session_state.chatbot.ask_question(last_q, filter_metadata=filter_meta)
+                        ans = st.session_state.chatbot.ask_question(
+                            last_q,
+                            filter_metadata=filter_meta,
+                            chat_history=history_for_llm
+                        )
                         st.markdown(ans)
             st.session_state.sidebar_chat_history.append({"role": "assistant", "content": ans})
             st.rerun()
@@ -149,11 +155,11 @@ def main():
             st.caption(f"📂 {stats['total_docs']} doc(s) indexados")
 
         st.session_state.agent_active = st.toggle(
-            "🤖 Activar Agente (JuanMa)",
-            value=st.session_state.get('agent_active', False)
+            "🤖 JuanMita activa",
+            value=st.session_state.get('agent_active', True)
         )
         if st.session_state.agent_active:
-            st.success("Agente habilitado:\nJuanMa está listo para actuar.")
+            st.success("JuanMita lista\npara analizar contratos.")
 
     nav_opt = st.session_state.nav_opt
 
@@ -168,7 +174,7 @@ def main():
         st.markdown(
             '<div class="top-nav">'
             '<a href="#">🏠 Inicio</a>'
-            '<a href="#">🧠 JuanMa</a>'
+            '<a href="#">🤖 JuanMita</a>'
             '<a href="#">⚙️ Ajustes</a>'
             '</div>',
             unsafe_allow_html=True
@@ -189,9 +195,9 @@ def main():
                 label_visibility="collapsed"
             )
             if search_query:
-                with st.spinner("JuanMa consultando contratos..."):
+                with st.spinner("JuanMita consultando contratos..."):
                     ans = st.session_state.chatbot.ask_question(search_query)
-                st.info(f"🤖 **JuanMa:**\n\n{ans}")
+                st.info(f"🤖 **JuanMita:**\n\n{ans}")
 
             c1, c2 = st.columns(2)
             with c1:
@@ -231,7 +237,7 @@ def main():
                                 st.session_state.current_folder_id = item['id']
                                 st.session_state.folder_history.append((item['id'], item['name']))
                                 st.rerun()
-                        help_txt = "Analizar carpeta con JuanMa" if is_folder else "Preguntar a JuanMa sobre este archivo"
+                        help_txt = "Analizar carpeta con JuanMita" if is_folder else "Preguntar a JuanMita sobre este archivo"
                         if row[2].button("🤖", key=f"ia_{item['id']}", help=help_txt):
                             chatbot = st.session_state.chatbot
                             if not is_demo:
@@ -270,12 +276,40 @@ def main():
                 m1, m2 = st.columns(2)
                 m1.markdown(f'<div class="metric-card"><div class="metric-val">{stats["total_docs"]}</div><div class="metric-lbl">Contratos indexados</div></div>', unsafe_allow_html=True)
                 m2.markdown(f'<div class="metric-card"><div class="metric-val">{stats["total_chunks"]}</div><div class="metric-lbl">Fragmentos en RAG</div></div>', unsafe_allow_html=True)
+
                 if stats['sources']:
-                    st.caption("Fuentes:")
-                    for s in stats['sources'][:5]:
-                        st.markdown(f"• `{s}`")
+                    st.caption("📄 Contratos en JuanMita:")
+                    for s in stats['sources'][:8]:
+                        st.markdown(f"• {s}")
                 else:
                     st.caption("Sin documentos indexados aún.")
+
+                # Botón para indexar todo el Drive desde el card de inicio
+                if 'drive_root_id' in st.session_state:
+                    if st.button("🔄 Indexar todos los contratos del Drive", use_container_width=True, key="ws_index_all"):
+                        from utils.drive_manager import get_recursive_files, download_file_to_io
+                        from utils.file_parser import extract_text_from_file
+                        drive_key = st.session_state.get('drive_api_key')
+                        with st.spinner("Indexando todos los contratos del Drive en JuanMita…"):
+                            all_f = get_recursive_files(st.session_state.drive_root_id, api_key=drive_key)
+                            docs = []
+                            errors = []
+                            for f in all_f:
+                                fio = download_file_to_io(f['id'], api_key=drive_key)
+                                if fio:
+                                    txt = extract_text_from_file(fio, f['name'])
+                                    if txt and not txt.startswith("Error"):
+                                        docs.append((txt, f['name'], {}))
+                                else:
+                                    errors.append(f['name'])
+                            if docs:
+                                ok, msg = st.session_state.chatbot.vector_ingest_multiple(docs)
+                                st.success(f"✅ {len(docs)} contratos indexados en JuanMita.")
+                            else:
+                                st.warning("No se encontraron archivos descargables. Verifica que tu API Key tenga acceso a los archivos.")
+                            if errors:
+                                st.caption(f"⚠️ No se pudo descargar: {', '.join(errors[:5])}")
+                        st.rerun()
                 st.markdown('</div>', unsafe_allow_html=True)
 
         # ============================================================
@@ -375,7 +409,7 @@ def main():
                                 "history": []
                             }
                             # Auto-indexar en RAG (Bug 1 fix)
-                            with st.spinner("Indexando en JuanMa..."):
+                            with st.spinner("Indexando en JuanMita..."):
                                 ok, msg = st.session_state.chatbot.vector_ingest(
                                     text, up.name, {"file_type": up.name.split(".")[-1]}
                                 )
@@ -387,9 +421,9 @@ def main():
                         with st.expander("📖 Vista previa del contenido"):
                             st.text(text[:2000] + ("..." if len(text) > 2000 else ""))
 
-                        # Análisis automático con JuanMa
-                        if st.button("🔍 Analizar riesgos con JuanMa"):
-                            with st.spinner("JuanMa analizando el contrato..."):
+                        # Análisis automático con JuanMita
+                        if st.button("🔍 Analizar riesgos con JuanMita"):
+                            with st.spinner("JuanMita analizando el contrato..."):
                                 analysis = st.session_state.chatbot.ask_question(
                                     f"Analiza los riesgos, obligaciones principales, partes y fechas clave del contrato '{up.name}'. "
                                     "Usa el sistema de semáforo para clasificar los riesgos.",
@@ -462,7 +496,7 @@ def main():
                         )
 
                     # Preguntar sobre diferencias
-                    if st.button("🤖 JuanMa: ¿qué cambié?"):
+                    if st.button("🤖 JuanMita: ¿qué cambié?"):
                         orig_words = set(ver["original"].split())
                         draft_words = set(new_draft.split())
                         added = draft_words - orig_words
@@ -496,19 +530,26 @@ def main():
         # 🧠 CHATBOT
         # ============================================================
         elif nav_opt == "🧠 Chatbot":
-            st.header("🧠 JuanMa — Asistente de Contratos")
+            st.header("🧠 JuanMita — Agente de Contratos")
 
             stats = st.session_state.chatbot.get_stats()
             if stats['total_docs'] > 0:
-                st.caption(f"📂 Consultando {stats['total_docs']} contrato(s) indexado(s): {', '.join(stats['sources'][:3])}")
+                st.success(f"✅ JuanMita tiene contexto de **{stats['total_docs']} contrato(s)** — {', '.join(stats['sources'][:3])}{'…' if len(stats['sources']) > 3 else ''}")
             else:
-                st.warning("⚠️ No hay contratos indexados. Carga documentos en ⚖️ Análisis Legal o ⚙️ Ajustes para que JuanMa pueda responder con contexto real.")
+                st.warning("⚠️ JuanMita no tiene contratos indexados aún. Haz clic en **🔄 Indexar todos los contratos del Drive** en la página de Inicio, o carga documentos en ⚖️ Análisis Legal.")
 
             if 'chat_history' not in st.session_state:
                 st.session_state.chat_history = []
 
+            # Botón para limpiar historial
+            if st.session_state.chat_history:
+                if st.button("🗑️ Limpiar conversación", key="clear_chat"):
+                    st.session_state.chat_history = []
+                    st.rerun()
+
             for m in st.session_state.chat_history:
-                with st.chat_message(m['role']):
+                avatar = "🤖" if m['role'] == "assistant" else None
+                with st.chat_message(m['role'], avatar=avatar):
                     st.markdown(m['content'])
 
             prompt = st.chat_input("Pregunta sobre los contratos indexados...")
@@ -516,9 +557,11 @@ def main():
                 st.session_state.chat_history.append({"role": "user", "content": prompt})
                 with st.chat_message("user"):
                     st.markdown(prompt)
-                with st.chat_message("assistant"):
-                    with st.spinner("JuanMa analizando contratos..."):
-                        res = st.session_state.chatbot.ask_question(prompt)
+                with st.chat_message("assistant", avatar="🤖"):
+                    with st.spinner("JuanMita analizando contratos..."):
+                        # Pasar historial para respuestas relacionadas
+                        history_for_llm = st.session_state.chat_history[:-1]
+                        res = st.session_state.chatbot.ask_question(prompt, chat_history=history_for_llm)
                     st.markdown(res)
                 st.session_state.chat_history.append({"role": "assistant", "content": res})
 
