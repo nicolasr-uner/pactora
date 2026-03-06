@@ -1,6 +1,7 @@
 def generate_investor_report(contract_type: str, metrics: dict, policies: list, risk_data: dict) -> str:
     """
     Generates a Markdown executive report (Investor-Ready) representing the Document Snapshot.
+    Incorporating Unergy Brand Colors.
     """
     
     # Safely get values with fallbacks
@@ -25,30 +26,36 @@ def generate_investor_report(contract_type: str, metrics: dict, policies: list, 
     else:
         polizas_md = "No se detectaron pólizas exigidas."
 
-    report = f"""# Resumen Ejecutivo (Investor Ready) - Unergy
-> **Generado por Pactora DocBrain**
+    report = f"""<div style="font-family: 'Lato', sans-serif; color: #2C2039; background-color: #FDFAF7; padding: 20px; border-radius: 8px;">
+<h1 style="color: #915BD8; font-family: 'Lato', sans-serif; font-weight: 900;">Resumen Ejecutivo (Investor Ready) - Unergy</h1>
+<p><em>Generado por Pactora DocBrain</em></p>
 
-## 1. Información General del Contrato
-- **Tipo de Contrato:** {contract_type}
-- **Precio/Tarifa (IPP/IPC):** {precio}
-- **Vigencia Comercial:** {vigencia}
-- **Hitos Clave (Ej. NTP, COD):** {hitos}
+<h2 style="color: #2C2039; font-weight: 900;">1. Información General del Contrato</h2>
+<ul>
+<li><strong>Tipo de Contrato:</strong> {contract_type}</li>
+<li><strong>Precio/Tarifa (IPP/IPC):</strong> {precio}</li>
+<li><strong>Vigencia Comercial:</strong> {vigencia}</li>
+<li><strong>Hitos Clave (Ej. NTP, COD):</strong> {hitos}</li>
+</ul>
 
-## 2. Obligaciones y Deberes
-{obligaciones}
+<h2 style="color: #2C2039; font-weight: 900;">2. Obligaciones y Deberes</h2>
+<p>{obligaciones}</p>
 
-## 3. Pólizas y Garantías Activas
+<h2 style="color: #2C2039; font-weight: 900;">3. Pólizas y Garantías Activas</h2>
 {polizas_md}
 
-## 4. Análisis Regulatorio y Semáforo de Riesgo (CREG/BMA)
-### Nivel de Riesgo: **{nivel_riesgo}**
-**Justificación Legal:**
-{justificacion}
+<h2 style="color: #2C2039; font-weight: 900;">4. Análisis Regulatorio y Semáforo de Riesgo (CREG/BMA)</h2>
+<div style="background-color: rgba(145, 91, 216, 0.1); padding: 15px; border-left: 4px solid #915BD8;">
+<h3>Nivel de Riesgo: <strong>{nivel_riesgo}</strong></h3>
+<p><strong>Justificación Legal:</strong><br/>{justificacion}</p>
+</div>
 
-**Alertas Identificadas:**
-{alertas_md}
+<div style="background-color: rgba(246, 255, 114, 0.2); padding: 15px; border-left: 4px solid #F6FF72; margin-top: 10px;">
+<p><strong>⚠️ Alertas Identificadas:</strong><br/>{alertas_md}</p>
+</div>
 
----
-*Este reporte ha sido generado automáticamente por Inteligencia Artificial y validado por el equipo legal de la Trifuerza Energética (Unergy, Suno, Solenium).*
+<hr style="border: 0; border-top: 1px solid rgba(44, 32, 57, 0.2); margin-top: 20px;">
+<p style="font-size: 12px; color: #2C2039;"><em>Este reporte ha sido generado automáticamente por Inteligencia Artificial y validado por el equipo legal de la Trifuerza Energética (Unergy, Suno, Solenium).</em></p>
+</div>
 """
     return report
