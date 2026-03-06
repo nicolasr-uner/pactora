@@ -4,7 +4,7 @@ def render_sidebar_chat():
     """Renderiza el chatbot contextual en la barra lateral."""
     if st.session_state.get('sidebar_chat_open'):
         with st.sidebar:
-            st.header(f"🤖 Chat: {st.session_state.sidebar_chat_title}")
+            st.header(f"🤖 JuanMa: {st.session_state.sidebar_chat_title}")
             st.write("---")
             
             if 'sidebar_chat_history' not in st.session_state:
@@ -23,7 +23,7 @@ def render_sidebar_chat():
                     st.markdown(user_input)
                 
                 with st.chat_message("assistant", avatar="🤖"):
-                    with st.spinner("Pactora responde..."):
+                    with st.spinner("JuanMa responde..."):
                         ans = st.session_state.chatbot.ask_question(user_input)
                         st.markdown(ans)
                 st.session_state.sidebar_chat_history.append({"role": "assistant", "content": ans})
@@ -47,31 +47,67 @@ def main():
 
     /* Global App Structure */
     .stApp {
-        background-color: #FDFAF7; /* Avena background */
+        background-color: #FDFAF7; /* Avena background (Light) */
         font-family: 'Lato', sans-serif;
-        color: #2C2039; /* Púrpura Profundo */
+        color: #212121; /* Púrpura Profundo -> Dynamic Dark Text for Light BG */
+    }
+    
+    /* Dynamic Contrast Classes */
+    .contrast-dark { color: #FFFFFF !important; }
+    .contrast-light { color: #212121 !important; }
+
+    /* Top-Right Static Navigation */
+    .top-nav {
+        position: fixed;
+        top: 20px;
+        right: 40px;
+        z-index: 1000;
+        display: flex;
+        gap: 20px;
+        background: rgba(255, 255, 255, 0.8);
+        padding: 10px 20px;
+        border-radius: 30px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+        backdrop-filter: blur(5px);
+    }
+    .top-nav a {
+        text-decoration: none;
+        color: #915BD8;
+        font-weight: 700;
+        font-size: 18px;
     }
 
-    /* Factora Header */
-    .factora-header {
+    /* Factora Header -> Pactora by Unergy */
+    .pactora-header {
         font-family: 'Lato', sans-serif;
         font-weight: 900;
         font-size: 56px;
         color: #2C2039;
         text-align: center;
         margin-top: -40px;
-        padding-bottom: 25px;
-        letter-spacing: -1.5px;
+        padding-bottom: 5px;
+        letter-spacing: -2px;
+    }
+    .pactora-tagline {
+        text-align: center;
+        color: #915BD8;
+        font-weight: 600;
+        margin-bottom: 30px;
+        font-size: 18px;
     }
 
     /* Sidebar Navigation Customization */
     section[data-testid="stSidebar"] {
         background-color: #2C2039 !important; /* Púrpura Profundo Sidebar */
         border-right: none;
-        width: 120px !important;
+        width: 250px !important; /* Increased width for accessibility */
     }
     
-    /* Nav Icons Styling (Overriding for dark sidebar) */
+    /* Increased Sidebar Legibility */
+    [data-testid="stSidebar"] * {
+        font-size: 1.1rem !important;
+    }
+    
     [data-testid="stSidebarNav"] {
         background-color: transparent !important;
     }
@@ -152,11 +188,21 @@ def main():
     """
     st.markdown(unergy_style, unsafe_allow_html=True)
     
+    # --- RENDER TOP NAV ---
+    st.markdown("""
+        <div class="top-nav">
+            <a href="#inicio">🏠 Inicio</a>
+            <a href="#chatbot">🧠 JuanMa</a>
+            <a href="#ajustes">⚙️ Ajustes</a>
+        </div>
+    """, unsafe_allow_html=True)
+    
     # --- RENDER BRANDING ---
-    st.markdown('<div class="factora-header">Factora</div>', unsafe_allow_html=True)
+    st.markdown('<div class="pactora-header">Pactora</div>', unsafe_allow_html=True)
+    st.markdown('<div class="pactora-tagline">by Unergy</div>', unsafe_allow_html=True)
     # --- SIDEBAR NAVIGATION ---
     with st.sidebar:
-        st.markdown('<div style="text-align: center; margin-bottom: 20px;"><img src="https://cdn-icons-png.flaticon.com/512/124/124010.png" width="40"></div>', unsafe_allow_html=True)
+        # st.markdown('<div style="text-align: center; margin-bottom: 20px;"><img src="https://cdn-icons-png.flaticon.com/512/124/124010.png" width="40"></div>', unsafe_allow_html=True) # Facebook Logo Removed
         nav_opt = st.radio(
             "Menú",
             ["🏠 Inicio", "📅 Calendario", "📊 Métricas", "📄 Plantillas", "⚖️ Análisis Legal", "🧠 Chatbot", "⚙️ Ajustes"],
@@ -166,6 +212,11 @@ def main():
         
         if 'drive_root_id' in st.session_state:
             st.caption(f"☁️ Conectado: {st.session_state.folder_history[0][1]}")
+            
+        st.divider()
+        st.session_state.agent_active = st.toggle("🤖 Activar Agente (JuanMa)", value=st.session_state.get('agent_active', False))
+        if st.session_state.agent_active:
+            st.success("Agente habilitado: JuanMa está listo para actuar.")
 
     # --- MAIN CONTENT AREA ---
     if nav_opt == "🏠 Inicio":
@@ -273,6 +324,125 @@ def main():
             st.markdown('🤖 **hace 3 horas**<br><span style="font-size: 13px; color: #5F6368;">Consultaste al chatbot</span>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
+    elif nav_opt == "📅 Calendario":
+        st.header("📅 Calendario Operativo Pactora")
+        
+        # View Selector
+        view_mode = st.radio("Filtro de Vista", ["Diario", "Semanal", "Mensual", "Anual"], horizontal=True)
+        
+        st.markdown('<div class="factora-card">', unsafe_allow_html=True)
+        st.subheader(f"Vista: {view_mode}")
+        
+        if view_mode == "Mensual":
+            # Better Monthly View
+            st.markdown('<div style="text-align: center; color: #915BD8; font-weight: 800; font-size: 24px; margin-bottom: 20px;">Marzo 2026</div>', unsafe_allow_html=True)
+            cols = st.columns(7)
+            days_header = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+            for i, d in enumerate(days_header):
+                cols[i].markdown(f'<div style="text-align: center; font-weight: 700; color: #2C2039; border-bottom: 2px solid #F3E8FF; padding-bottom: 10px;">{d}</div>', unsafe_allow_html=True)
+            
+            weeks = [
+                [{"d": "23", "u": None}, {"d": "24", "u": None}, {"d": "25", "u": None}, {"d": "26", "u": "Rojo"}, {"d": "27", "u": None}, {"d": "28", "u": None}, {"d": "1", "u": None}],
+                [{"d": "2", "u": None}, {"d": "3", "u": "Verde"}, {"d": "4", "u": None}, {"d": "5", "u": "Amarillo"}, {"d": "6", "u": None}, {"d": "7", "u": None}, {"d": "8", "u": None}],
+                [{"d": "9", "u": "Rojo"}, {"d": "10", "u": None}, {"d": "11", "u": None}, {"d": "12", "u": "Amarillo"}, {"d": "13", "u": None}, {"d": "14", "u": None}, {"d": "15", "u": None}]
+            ]
+            
+            for week in weeks:
+                row = st.columns(7)
+                for i, day_data in enumerate(week):
+                    day = day_data["d"]
+                    urgency = day_data["u"]
+                    bg = "background: rgba(145, 91, 216, 0.05);" if urgency else ""
+                    border = f"border-top: 4px solid {'#FF4B4B' if urgency=='Rojo' else '#FFAA00' if urgency=='Amarillo' else '#28A745' if urgency=='Verde' else 'transparent'};"
+                    
+                    row[i].markdown(f"""
+                    <div style="height: 100px; padding: 10px; border-radius: 8px; {bg} {border} margin: 2px; box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
+                        <span style="font-weight: 800; color: #2C2039;">{day}</span>
+                        {f'<div style="font-size: 10px; margin-top: 10px; color: #5F6368;">Hito: {urgency}</div>' if urgency else ''}
+                    </div>
+                    """, unsafe_allow_html=True)
+        else:
+            st.info(f"Integrando visualización interactiva para el modo {view_mode}...")
+            st.image("https://via.placeholder.com/800x400.png?text=Interactive+Draggable+Calendar+Mode", caption="Componente Movible en Desarrollo")
+            
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    elif nav_opt == "📊 Métricas":
+        st.header("📊 Métricas y Rendimiento Contractual")
+        
+        # Simulated Metrics Dashboard
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Contratos Totales", "24", "+2")
+        with col2:
+            st.metric("Score Promedio CREG", "88%", "-3%")
+        with col3:
+            st.metric("Pólizas por Vencer", "5", "Urgente")
+            
+        st.write("---")
+        
+        m_col1, m_col2 = st.columns(2)
+        with m_col1:
+            st.markdown('<div class="factora-card">', unsafe_allow_html=True)
+            st.subheader("Distribución por Tipo")
+            import pandas as pd
+            chart_data = pd.DataFrame({
+                'Tipo': ['PPA', 'EPC', 'OyM', 'NDA', 'MOU'],
+                'Cantidad': [8, 5, 4, 4, 3]
+            })
+            st.bar_chart(chart_data.set_index('Tipo'))
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+        with m_col2:
+            st.markdown('<div class="factora-card">', unsafe_allow_html=True)
+            st.subheader("Nivel de Riesgo (Semáforo)")
+            risk_data = pd.DataFrame({
+                'Nivel': ['Bajo (Verde)', 'Medio (Amarillo)', 'Alto (Rojo)'],
+                'Contratos': [15, 6, 3]
+            })
+            st.area_chart(risk_data.set_index('Nivel'))
+            st.markdown('</div>', unsafe_allow_html=True)
+
+    elif nav_opt == "📄 Plantillas":
+        st.header("📄 Gestión de Plantillas Maestras")
+        
+        # Template Tools
+        t_col1, t_col2 = st.columns([1, 1])
+        with t_col1:
+            st.markdown('<div class="factora-card">', unsafe_allow_html=True)
+            st.subheader("Cargar Nueva Plantilla")
+            uploaded_template = st.file_uploader("Subir archivo (.docx)", type=["docx"])
+            if uploaded_template:
+                st.success("Plantilla cargada con éxito.")
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+        with t_col2:
+            st.markdown('<div class="factora-card">', unsafe_allow_html=True)
+            st.subheader("Buscador de Plantillas")
+            search_t = st.text_input("🔍 Buscar por nombre o tipo...", placeholder="PPA, EPC...")
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+        st.write("---")
+        
+        # Template List
+        st.subheader("Biblioteca de Plantillas")
+        templates = [
+            {"name": "PPA_Standard_Unergy_V2.docx", "type": "PPA", "last": "2024-02-01"},
+            {"name": "EPC_Construction_Solar_v4.docx", "type": "EPC", "last": "2024-01-15"},
+            {"name": "NDA_General_Legal.docx", "type": "NDA", "last": "2023-11-20"},
+        ]
+        
+        for t in templates:
+            with st.expander(f"📄 {t['name']} ({t['type']})"):
+                st.write(f"**Última actualización:** {t['last']}")
+                c1, c2 = st.columns(2)
+                with c1:
+                    if st.button(f"Previsualizar {t['name']}", key=f"pre_{t['name']}"):
+                        st.info("Generando previsualización...")
+                        st.markdown("> [!NOTE]\n> Esta es una vista previa de la estructura del documento PPA...")
+                with c2:
+                    st.download_button(f"Descargar {t['name']}", data=b"Contenido simulado", file_name=t['name'], key=f"dl_{t['name']}")
+
     elif nav_opt == "⚖️ Análisis Legal":
         st.header("⚖️ Ingeniería Legal & Semáforo de Riesgo")
         
@@ -344,7 +514,7 @@ def main():
             for msg in st.session_state.chat_history:
                 with st.chat_message(msg['role'], avatar="🤖" if msg['role']=="assistant" else None):
                     st.markdown(msg['content'])
-            u_input = st.chat_input("Pregunta sobre tus contratos...")
+            u_input = st.chat_input("Pregunta a JuanMa sobre tus contratos...")
             if u_input:
                 st.session_state.chat_history.append({'role': 'user', 'content': u_input})
                 with st.chat_message('user'): st.markdown(u_input)
