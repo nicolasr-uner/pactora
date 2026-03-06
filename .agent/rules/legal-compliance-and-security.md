@@ -1,5 +1,29 @@
-# Reglas de Oro de Pactora
-1. INVIOLABILIDAD: Nunca edites documentos originales en Google Drive. Acceso de lectura para ingesta; escritura solo para crear carpetas de proyecto o exportar plantillas/borradores nuevos.
-2. SEMÁFORO DE RIESGO: Clasifica el riesgo contractual en Rojo (incumplimiento normativo CREG/BMA), Amarillo (desviación >10% frente a Plantilla Maestra) y Verde (estándar).
-3. PRIVACIDAD: Mantén políticas estrictas para datos tokenizados de Suno (jurisdicción Bermuda). Las credenciales `credentials.json` y `token.json` nunca deben exponerse ni commitearse.
-4. UI/UX MARCA: Usa la paleta Unergy en Streamlit (Púrpura Enérgico #915BD8, Avena #FDFAF7, Amarillo Solar #F6FF72 para acentos). Tablas claras para Legal y métricas para Comercial.
+# Pactora — Legal Compliance & Security Rules
+
+> **Contexto:** Pactora es una plataforma CLM para Unergy. Este documento define las reglas estrictas de cumplimiento legal y seguridad de datos.
+
+---
+
+## 1. Semáforo de Riesgo Legal (Risk Semaphore)
+
+Todo documento analizado por Gemini debe ser clasificado bajo estos criterios:
+
+- 🔴 **Rojo (Riesgo Crítico):** 
+    - Incumplimiento de normativas CREG (Comisión de Regulación de Energía y Gas).
+    - Falta de cláusulas de Fuerza Mayor en contratos EPC.
+    - Penalidades que superen el 20% del valor del contrato.
+- 🟡 **Amarillo (Revisión Detallada):**
+    - Desviación > 10% respecto a la **Plantilla Maestra**.
+    - Fórmulas de indexación (IPP/IPC) no estándar.
+    - Vigencias menores a 5 años en contratos PPA.
+- 🟢 **Verde (Conforme):**
+    - Alineación total con las plantillas de Unergy.
+    - Cláusulas estándar de arbitraje y jurisdicción.
+
+---
+
+## 2. Privacidad y Seguridad
+
+- **Inviolabilidad de Datos:** Los documentos son propiedad privada de Unergy. Nunca deben ser usados para entrenar modelos externos fuera del contexto de esta sesión.
+- **Manejo de API Keys:** Las claves de Gemini y Drive deben residir únicamente en `secrets.toml` o variables de entorno. NUNCA hacer commit a archivos que las contengan.
+- **Human-in-the-loop:** Ningún cambio en el contrato se considera final hasta que haya sido validado en el `st.data_editor` por un miembro del equipo legal.

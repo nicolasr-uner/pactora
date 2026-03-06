@@ -40,94 +40,117 @@ def main():
         from core.rag_chatbot import RAGChatbot
         st.session_state.chatbot = RAGChatbot()
     
-    # --- FACTORA PREMIUM CSS ---
-    factora_style = """
+    # --- UNERGY / FACTORA BRANDING CSS ---
+    unergy_style = """
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Inter:wght@400;600&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&display=swap');
 
-    /* Global App Background */
+    /* Global App Structure */
     .stApp {
-        background: #F8F9FA;
-        font-family: 'Inter', sans-serif;
+        background-color: #FDFAF7; /* Avena background */
+        font-family: 'Lato', sans-serif;
+        color: #2C2039; /* Púrpura Profundo */
     }
 
-    /* Factora Header & Branding */
+    /* Factora Header */
     .factora-header {
-        font-family: 'Playfair Display', serif;
-        font-size: 64px;
-        color: #1A2D35;
+        font-family: 'Lato', sans-serif;
+        font-weight: 900;
+        font-size: 56px;
+        color: #2C2039;
         text-align: center;
-        margin-top: -30px;
-        margin-bottom: 20px;
+        margin-top: -40px;
+        padding-bottom: 25px;
+        letter-spacing: -1.5px;
     }
 
     /* Sidebar Navigation Customization */
     section[data-testid="stSidebar"] {
-        background-color: #FFFFFF !important;
-        border-right: 1px solid #E0E0E0;
-        width: 100px !important;
+        background-color: #2C2039 !important; /* Púrpura Profundo Sidebar */
+        border-right: none;
+        width: 120px !important;
     }
     
-    /* Nav Icons Styling */
-    .nav-item {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        padding: 15px 0;
-        cursor: pointer;
-        color: #5F6368;
-        transition: all 0.3s;
+    /* Nav Icons Styling (Overriding for dark sidebar) */
+    [data-testid="stSidebarNav"] {
+        background-color: transparent !important;
     }
-    .nav-item:hover {
-        background-color: #F1F3F4;
-        color: #1A2D35;
-        border-radius: 12px;
+    .stRadio > div {
+        background-color: transparent !important;
     }
-    .nav-active {
-        color: #915BD8;
-        background-color: #F3E8FF;
-        border-radius: 12px;
+    label[data-testid="stWidgetLabel"] {
+        color: #FDFAF7 !important;
+        font-weight: 700;
     }
 
-    /* Cards Style (Widgets) */
+    /* Cards Style (Glassmorphism + Unergy touch) */
     .factora-card {
-        background: white;
-        border-radius: 24px;
-        padding: 25px;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.05);
-        border: 1px solid #F0F0F0;
+        background: rgba(255, 255, 255, 0.8);
+        backdrop-filter: blur(8px);
+        border-radius: 20px;
+        padding: 24px;
+        box-shadow: 0 8px 32px 0 rgba(145, 91, 216, 0.05);
+        border: 1px solid rgba(145, 91, 216, 0.1);
         height: 100%;
         margin-bottom: 20px;
+        transition: transform 0.2s, border-color 0.2s;
     }
+    .factora-card:hover {
+        transform: translateY(-4px);
+        border-color: #915BD8;
+    }
+    
     .card-title {
-        font-size: 24px;
-        font-weight: 600;
-        color: #1A2D35;
-        margin-bottom: 20px;
+        font-size: 20px;
+        font-weight: 900;
+        color: #2C2039;
+        margin-bottom: 18px;
+        border-left: 5px solid #915BD8;
+        padding-left: 12px;
     }
 
-    /* Search Bar Professionalism */
+    /* Search Bar Customization */
     .stTextInput>div>div>input {
-        background-color: #F1F3F4 !important;
-        border-radius: 50px !important;
-        border: none !important;
-        padding: 12px 25px !important;
-        font-size: 18px !important;
+        background-color: white !important;
+        border-radius: 12px !important;
+        border: 1px solid #E0E0E0 !important;
+        padding: 10px 20px !important;
+        color: #2C2039 !important;
+        font-family: 'Lato', sans-serif !important;
+    }
+    .stTextInput>div>div>input:focus {
+        border-color: #915BD8 !important;
+        box-shadow: 0 0 0 2px rgba(145, 91, 216, 0.2) !important;
     }
 
-    /* Hide standard ST elements */
+    /* Custom Buttons (Unergy Purple) */
+    .stButton>button {
+        background-color: #915BD8 !important;
+        color: #FDFAF7 !important;
+        border-radius: 10px !important;
+        border: none !important;
+        padding: 10px 20px !important;
+        font-weight: 700 !important;
+        font-family: 'Lato', sans-serif !important;
+    }
+    .stButton>button:hover {
+        background-color: #2C2039 !important;
+        color: white !important;
+        box-shadow: 0 4px 12px rgba(145, 91, 216, 0.3) !important;
+    }
+
+    /* Utility */
+    .stCaption {
+        color: #915BD8 !important;
+        font-weight: 700 !important;
+    }
+    
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
-    
-    /* Custom Buttons */
-    .stButton>button {
-        border-radius: 12px !important;
-        font-weight: 600 !important;
-    }
     </style>
     """
-    st.markdown(factora_style, unsafe_allow_html=True)
+    st.markdown(unergy_style, unsafe_allow_html=True)
     
     # --- RENDER BRANDING ---
     st.markdown('<div class="factora-header">Factora</div>', unsafe_allow_html=True)
@@ -136,7 +159,7 @@ def main():
         st.markdown('<div style="text-align: center; margin-bottom: 20px;"><img src="https://cdn-icons-png.flaticon.com/512/124/124010.png" width="40"></div>', unsafe_allow_html=True)
         nav_opt = st.radio(
             "Menú",
-            ["🏠 Inicio", "📅 Calendario", "📊 Métricas", "📄 Plantillas", "⚖️ Comparativo", "🧠 Chatbot", "⚙️ Ajustes"],
+            ["🏠 Inicio", "📅 Calendario", "📊 Métricas", "📄 Plantillas", "⚖️ Análisis Legal", "🧠 Chatbot", "⚙️ Ajustes"],
             label_visibility="collapsed"
         )
         st.divider()
@@ -249,6 +272,67 @@ def main():
         with act_cols[3]:
             st.markdown('🤖 **hace 3 horas**<br><span style="font-size: 13px; color: #5F6368;">Consultaste al chatbot</span>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
+
+    elif nav_opt == "⚖️ Análisis Legal":
+        st.header("⚖️ Ingeniería Legal & Semáforo de Riesgo")
+        
+        c1, c2 = st.columns([1, 2])
+        with c1:
+            st.markdown('<div class="factora-card">', unsafe_allow_html=True)
+            st.subheader("Subir para Análisis")
+            contract_type = st.selectbox("Tipo de Contrato", ["PPA", "EPC", "OyM", "Arriendo", "Representación Frontera", "MOU", "NDA", "Investment Agreement"])
+            uploaded_file = st.file_uploader("Documento del Contrato (.docx)", type=["docx"], key="legal_uploader")
+            run_analysis = st.button("Ejecutar Análisis de Riesgo", use_container_width=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        if run_analysis:
+            if uploaded_file:
+                from core.risk_assessor import analyze_legal_risk
+                from utils.file_parser import extract_text_from_file
+                import io
+                
+                with st.spinner("Pactora analizando riesgos y cumplimiento CREG..."):
+                    text = extract_text_from_file(io.BytesIO(uploaded_file.getvalue()), uploaded_file.name)
+                    report = analyze_legal_risk(text, contract_type)
+                
+                if "error" in report:
+                    st.error(report["error"])
+                else:
+                    with c2:
+                        st.markdown(f"### Score de Cumplimiento: **{report.get('compliance_score', 0)}%**")
+                        st.write(report.get("summary", ""))
+                        st.write("---")
+                        
+                        for risk in report.get("risks", []):
+                            level = risk.get("level", "Verde")
+                            color = "#FF4B4B" if level == "Rojo" else "#FFAA00" if level == "Amarillo" else "#28A745"
+                            icon = "🔴" if level == "Rojo" else "🟡" if level == "Amarillo" else "🟢"
+                            
+                            st.markdown(f"""
+                            <div style="background: white; border-left: 10px solid {color}; padding: 15px; border-radius: 12px; margin-bottom: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+                                <h4 style="margin:0; color: {color};">{icon} {risk.get('clause', 'Análisis de Cláusula')}</h4>
+                                <p style="margin: 8px 0; color: #2C2039; font-size: 1.05em;">{risk.get('reason', '')}</p>
+                                <div style="background: #F8F9FA; padding: 8px; border-radius: 8px; border: 1px dashed #DDD;">
+                                    <span style="color: #5F6368; font-size: 0.9em;"><b>Acción Recomendada:</b> {risk.get('action', 'N/A')}</span>
+                                </div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            
+                            # Botón de Sincronización si es una póliza con fecha
+                            if "Poliza" in risk.get('clause', '') and "vencimiento" in risk.get('reason', '').lower():
+                                import re
+                                date_match = re.search(r'\d{4}-\d{2}-\d{2}', risk.get('reason', ''))
+                                if date_match:
+                                    date_str = date_match.group()
+                                    if st.button(f"📅 Sincronizar {risk.get('clause')} ({date_str})", key=f"sync_{risk.get('clause')}_{date_str}"):
+                                        from utils.calendar_manager import create_contract_event
+                                        res = create_contract_event(risk.get('clause'), risk.get('reason'), date_str)
+                                        if "error" in res:
+                                            st.error(f"Error: {res['error']}")
+                                        else:
+                                            st.success(f"✅ Sincronizado: [Ver en Calendario]({res['link']})")
+            else:
+                st.warning("⚠️ Por favor, carga un documento primero.")
 
     elif nav_opt == "🧠 Chatbot":
         st.header("🧠 Asistente RAG Principal")
