@@ -126,10 +126,13 @@ def download_file(file_id: str, dest_path: str):
         print(f"Error descargando el archivo {file_id}: {error}")
         return False
 
-def download_file_to_io(file_id: str):
+def download_file_to_io(file_id: str, api_key: str = None):
     """Descarga un archivo de Drive y lo devuelve como un objeto BytesIO en memoria."""
     try:
-        service = get_drive_service()
+        if api_key:
+            service = get_drive_service_with_apikey(api_key)
+        else:
+            service = get_drive_service()
         request = service.files().get_media(fileId=file_id)
         file_io = io.BytesIO()
         downloader = MediaIoBaseDownload(file_io, request)

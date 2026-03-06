@@ -154,7 +154,7 @@ def main():
                                     files_to_ingest = get_recursive_files(folder['id'], api_key=st.session_state.get('drive_api_key'))
                                     ingest_data = []
                                     for f in files_to_ingest:
-                                        f_io = download_file_to_io(f['id'])
+                                        f_io = download_file_to_io(f['id'], api_key=st.session_state.get('drive_api_key'))
                                         if f_io:
                                             text = extract_text_from_file(f_io, f['name'])
                                             if not text.startswith("Error"):
@@ -205,7 +205,7 @@ def main():
                                     from utils.file_parser import extract_text_from_file
                                     import io
                                     
-                                    f_io = download_file_to_io(doc['id'])
+                                    f_io = download_file_to_io(doc['id'], api_key=st.session_state.get('drive_api_key'))
                                     if f_io:
                                         text = extract_text_from_file(f_io, doc['name'])
                                         if not text.startswith("Error"):
