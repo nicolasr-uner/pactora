@@ -27,13 +27,11 @@ def authenticate_google_apis():
             creds.refresh(Request())
         else:
             if not os.path.exists('credentials.json'):
-                raise FileNotFoundError(
-                    "Falta credentials.json. Por reglas de Privacidad de Pactora, "
-                    "debes descargar tus credenciales de Google Cloud, guardarlas "
-                    "en la raíz del proyecto y NUNCA hacerles commit."
-                )
+                # Silenciamos el error para permitir modo demo o carga local
+                return None
             flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
             creds = flow.run_local_server(port=0)
+
             
         # Guarda las credenciales autorizadas en token.json
         with open('token.json', 'w') as token:
