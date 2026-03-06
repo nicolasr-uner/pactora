@@ -385,21 +385,20 @@ def main():
                 ["📤 Cargar Contrato", "✏️ Editor de Borrador", "🗂️ Historial de Versiones"]
             )
 
-            # --- TAB 1: Carga y análisis ---
+            # --- TAB 1: Biblioteca de Google Drive (Drive-First) ---
             with tab_upload:
-                up = st.file_uploader(
-                    "Sube un contrato (PDF o DOCX)",
-                    type=["pdf", "docx"],
-                    key="contract_uploader"
-                )
-                if up:
-                    from utils.file_parser import extract_text_from_file
-                    import io
-                    file_bytes = up.read()
-                    text = extract_text_from_file(io.BytesIO(file_bytes), up.name)
+                st.subheader("☁️ Biblioteca de Contratos (Google Drive)")
+                st.write("Busca y selecciona un contrato directamente desde la nube de Unergy.")
 
-                    if text and not text.startswith("Error"):
-                        st.success(f"✅ **{up.name}** cargado — {len(text):,} caracteres extraídos.")
+                # Search Interface
+                search_col1, search_col2 = st.columns([3, 1])
+                with search_col1:
+                    drive_query = st.text_input("🔍 Nombre del documento", placeholder="Ej: PPA-GranjaSolar", key="drive_lib_query")
+                with search_col2:
+                    if st.button("Buscar en Biblioteca", use_container_width=True):
+                        with st.spinner("Conectando con Google Drive..."):
+                            results = search_documents(query=drive_query)
+                            st.session_state['lib_search_results'] = results
 
                         # Feature 4: guardar versión original intocable
                         if up.name not in st.session_state.doc_versions:
@@ -417,9 +416,16 @@ def main():
                         else:
                             st.info("Este documento ya estaba indexado. Ve a ✏️ Editor para editarlo.")
 
-                        # Vista previa del texto
-                        with st.expander("📖 Vista previa del contenido"):
-                            st.text(text[:2000] + ("..." if len(text) > 2000 else ""))
+                    if st.button("🚀 Cargar e Indexar en JuanMa", type="primary"):
+                        with st.spinner(f"Descargando e indexando {selected_file['name']}..."):
+                            # 1. Fetch from Drive
+                            file_bytes = fetch_document(selected_file['id'])
+                            
+                            if file_bytes:
+                                # 2. Extract Text
+                                from utils.file_parser import extract_text_from_file
+                                import io
+                                text = extract_text_from_file(io.BytesIO(file_bytes), selected_file['name'])
 
                         # Análisis automático con JuanMita
                         if st.button("🔍 Analizar riesgos con JuanMita"):
@@ -432,7 +438,8 @@ def main():
                             st.markdown("### 📋 Análisis de Riesgos")
                             st.markdown(analysis)
                     else:
-                        st.error(f"No se pudo extraer texto: {text}")
+                        st.info("Ingresa un nombre arriba para buscar documentos en la biblioteca de Unergy.")
+
 
             # --- TAB 2: Editor de borrador (Feature 4) ---
             with tab_editor:

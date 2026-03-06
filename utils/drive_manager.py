@@ -17,12 +17,17 @@ def search_documents(query: str = "", max_results: int = 20) -> List[Dict]:
         return []
 
     try:
-        # Build query: always .docx, optionally filter by name
-        mime_filter = "mimeType='application/vnd.openxmlformats-officedocument.wordprocessingml.document'"
+        # Build query: .docx or .pdf, optionally filter by name
+        mime_docx = "mimeType='application/vnd.openxmlformats-officedocument.wordprocessingml.document'"
+        mime_pdf = "mimeType='application/pdf'"
+        
+        mime_filter = f"({mime_docx} or {mime_pdf})"
+        
         if query.strip():
             full_query = f"{mime_filter} and name contains '{query.strip()}' and trashed=false"
         else:
             full_query = f"{mime_filter} and trashed=false"
+
 
         results = service.files().list(
             q=full_query,
