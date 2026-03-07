@@ -126,8 +126,11 @@ def _backup_chromadb_to_drive(drive_root_id: str) -> bool:
         return False
 
 
-def _bg_startup_index(chatbot, drive_root_id, drive_api_key):
+def _bg_startup_index(api_key, drive_root_id, drive_api_key):
     """Background thread: indexes all Drive contracts once on server startup."""
+    # Siempre obtener el chatbot del cache para garantizar que es la misma
+    # instancia que usa st.session_state.chatbot (evita el bug de "0 contratos")
+    chatbot = _get_chatbot(api_key)
     prog = _startup_index_progress
     try:
         import concurrent.futures
@@ -219,14 +222,22 @@ def _bg_startup_index(chatbot, drive_root_id, drive_api_key):
 
         log.info("Descarga completada. Total con texto valido: %d/%d", total_indexed, len(files_to_index))
 
+        # Actualizar prog["indexed"] con el conteo REAL de ChromaDB
+        try:
+            real_count = chatbot.get_stats()["total_docs"]
+            prog["indexed"] = real_count
+            log.info("Verificacion ChromaDB: %d documentos en vectorstore.", real_count)
+        except Exception as e:
+            log.warning("No se pudo verificar ChromaDB: %s", e)
+
         # ── Guardar backup de ChromaDB en Drive para sobrevivir reinicios ───
-        if total_indexed > 0:
+        if prog["indexed"] > 0:
             log.info("[backup] Guardando ChromaDB en Drive...")
             _backup_chromadb_to_drive(drive_root_id)
         # ────────────────────────────────────────────────────────────────────
 
         prog["status"] = "complete"
-        log.info("Indexacion finalizada exitosamente.")
+        log.info("Indexacion finalizada exitosamente. Total en ChromaDB: %d", prog["indexed"])
     except Exception as e:
         prog["status"] = "error"
         prog["error"] = str(e)[:120]
@@ -240,9 +251,10 @@ def _trigger_startup_index(chatbot, drive_root_id, drive_api_key):
         if _startup_index_triggered:
             return
         _startup_index_triggered = True
+    api_key = chatbot.api_key if chatbot else None
     t = threading.Thread(
         target=_bg_startup_index,
-        args=(chatbot, drive_root_id, drive_api_key),
+        args=(api_key, drive_root_id, drive_api_key),
         daemon=True
     )
     t.start()
@@ -324,13 +336,14 @@ def _drive_status_widget():
         st.progress(pct, text=f"{p['last_file'][:55]}" if p["last_file"] else "iniciando...")
     elif p["status"] == "error":
         st.warning(
-            f"Drive conectado — {n} contrato(s) indexado(s). Error: {p['error']}",
+            f"Drive conectado — {p['indexed']} contrato(s) indexado(s). Error: {p['error']}",
             icon="⚠️"
         )
     elif p["status"] == "complete":
-        st.success(f"Drive conectado — {n} contrato(s) indexado(s)", icon="✅")
+        # Usar prog["indexed"] que fue verificado por el hilo sobre el chatbot correcto
+        count = p["indexed"] if p["indexed"] > 0 else n
+        st.success(f"Drive conectado — {count} contrato(s) indexado(s)", icon="✅")
     elif p["status"] == "idle":
-        # Aun no arranco el hilo
         st.info("Drive conectado — iniciando indexacion...", icon="⏳")
     else:
         st.success(f"Drive conectado — {n} contrato(s)", icon="✅")
