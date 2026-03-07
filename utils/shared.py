@@ -63,17 +63,22 @@ def page_header(subtitle="by Unergy"):
     )
 
 
-def init_session_state():
+@st.cache_resource
+def _get_chatbot(api_key: str):
+    """Crea RAGChatbot una sola vez por proceso de servidor (cache compartido entre sesiones)."""
     from core.rag_chatbot import RAGChatbot
+    return RAGChatbot(api_key=api_key)
 
+
+def init_session_state():
     if "gemini_api_key" not in st.session_state:
         try:
             st.session_state.gemini_api_key = st.secrets.get("GEMINI_API_KEY", "")
         except Exception:
             st.session_state.gemini_api_key = ""
 
-    if "chatbot" not in st.session_state:
-        st.session_state.chatbot = RAGChatbot(api_key=st.session_state.gemini_api_key)
+    # Usa cache_resource para no re-crear el chatbot en cada rerun
+    st.session_state.chatbot = _get_chatbot(st.session_state.gemini_api_key)
 
     defaults = {
         "current_folder_id": "",

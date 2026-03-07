@@ -33,9 +33,9 @@ with col_gemini:
     )
     if st.button("Guardar Key"):
         if k:
-            from core.rag_chatbot import RAGChatbot
+            from utils.shared import _get_chatbot
+            _get_chatbot.clear()
             st.session_state.gemini_api_key = k
-            st.session_state.chatbot = RAGChatbot(api_key=k)
             st.success("API Key guardada y JuanMitaBot reiniciado.")
             st.rerun()
         else:
