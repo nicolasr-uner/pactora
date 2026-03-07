@@ -1,11 +1,33 @@
 import os
-import google.generativeai as genai
-from langchain_core.embeddings import Embeddings as BaseEmbeddings
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores import Chroma
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from typing import List, Dict, Tuple, Optional, Any
+
+# Heavy imports are deferred to first use so app boots without loading them
+_genai = None
+_Chroma = None
+_ChatGGAI = None
+_RecursiveTextSplitter = None
+_SystemMessage = _HumanMessage = _AIMessage = None
+_BaseEmbeddings = None
+
+
+def _ensure_imports():
+    global _genai, _Chroma, _ChatGGAI, _RecursiveTextSplitter
+    global _SystemMessage, _HumanMessage, _AIMessage, _BaseEmbeddings
+    if _genai is None:
+        import google.generativeai as genai
+        from langchain_core.embeddings import Embeddings as BaseEmbeddings
+        from langchain_text_splitters import RecursiveCharacterTextSplitter
+        from langchain_community.vectorstores import Chroma
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+        _genai = genai
+        _BaseEmbeddings = BaseEmbeddings
+        _RecursiveTextSplitter = RecursiveCharacterTextSplitter
+        _Chroma = Chroma
+        _ChatGGAI = ChatGoogleGenerativeAI
+        _SystemMessage = SystemMessage
+        _HumanMessage = HumanMessage
+        _AIMessage = AIMessage
 
 LEGAL_SYSTEM_PROMPT = """Eres JuanMitaBot, agente legal y técnico especializada en contratos de energía de Unergy/Pactora.
 Tienes acceso completo a todos los contratos indexados del Drive corporativo.
@@ -26,21 +48,21 @@ CONTEXTO DE CONTRATOS INDEXADOS:
 {context}"""
 
 
-class _GeminiEmbeddings(BaseEmbeddings):
+class _GeminiEmbeddings:
     """Embeddings usando google-generativeai directamente (evita bug v1beta de langchain)."""
 
     def __init__(self, api_key: str, model: str = "models/text-embedding-004"):
+        _ensure_imports()
         self._model = model
-        genai.configure(api_key=api_key)
+        _genai.configure(api_key=api_key)
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
         if not texts:
             return []
-        # Batch up to 100 texts per API call (Gemini limit)
         BATCH = 100
         result = []
         for i in range(0, len(texts), BATCH):
-            r = genai.embed_content(
+            r = _genai.embed_content(
                 model=self._model,
                 content=texts[i : i + BATCH],
                 task_type="retrieval_document"
@@ -49,7 +71,7 @@ class _GeminiEmbeddings(BaseEmbeddings):
         return result
 
     def embed_query(self, text: str) -> List[float]:
-        r = genai.embed_content(
+        r = _genai.embed_content(
             model=self._model,
             content=text,
             task_type="retrieval_query"
@@ -62,25 +84,24 @@ class RAGChatbot:
         self.persist_directory = persist_directory
         self.api_key = api_key or os.environ.get("GEMINI_API_KEY")
         self._indexed_sources: List[str] = []
+        self.embeddings = None
+        self.llm = None
+        self.vectorstore: Any = None
 
         if self.api_key:
+            _ensure_imports()
             self.embeddings = _GeminiEmbeddings(self.api_key)
-            self.llm = ChatGoogleGenerativeAI(
+            self.llm = _ChatGGAI(
                 model="gemini-2.0-flash",
                 google_api_key=self.api_key,
                 temperature=0.1
             )
-        else:
-            self.embeddings = None
-            self.llm = None
-
-        self.vectorstore: Any = None
-        self._initialize_vectorstore()
+            self._initialize_vectorstore()
 
     def _initialize_vectorstore(self):
         if self.embeddings and os.path.exists(self.persist_directory):
             try:
-                self.vectorstore = Chroma(
+                self.vectorstore = _Chroma(
                     persist_directory=self.persist_directory,
                     embedding_function=self.embeddings
                 )
@@ -99,7 +120,7 @@ class RAGChatbot:
             return False, "API Key de Gemini no configurada."
         try:
             all_splits = []
-            text_splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=300)
+            text_splitter = _RecursiveTextSplitter(chunk_size=1500, chunk_overlap=300)
             for doc_data in documents_list:
                 text_content = doc_data[0]
                 filename = doc_data[1]
@@ -117,7 +138,7 @@ class RAGChatbot:
             if not all_splits:
                 return False, "No se extrajo texto valido de los documentos."
             if self.vectorstore is None:
-                self.vectorstore = Chroma.from_documents(
+                self.vectorstore = _Chroma.from_documents(
                     documents=all_splits,
                     embedding=self.embeddings,
                     persist_directory=self.persist_directory
@@ -166,14 +187,14 @@ class RAGChatbot:
         if sources and sources[0].startswith("ERROR:"):
             return f"Error al consultar vectorstore: {sources[0][6:]}"
 
-        messages: List = [SystemMessage(content=LEGAL_SYSTEM_PROMPT.format(context=context_text))]
+        messages: List = [_SystemMessage(content=LEGAL_SYSTEM_PROMPT.format(context=context_text))]
         if chat_history:
             for msg in chat_history[-8:]:
                 if msg.get("role") == "user":
-                    messages.append(HumanMessage(content=msg["content"]))
+                    messages.append(_HumanMessage(content=msg["content"]))
                 elif msg.get("role") == "assistant":
-                    messages.append(AIMessage(content=msg["content"]))
-        messages.append(HumanMessage(content=question))
+                    messages.append(_AIMessage(content=msg["content"]))
+        messages.append(_HumanMessage(content=question))
 
         try:
             response = self.llm.invoke(messages)
