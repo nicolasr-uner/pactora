@@ -158,30 +158,28 @@ with c1:
                 st.session_state.sidebar_chat_filter = None if is_folder else {"source": item["name"]}
                 st.rerun()
 
-            # Vista previa inline
+            # Vista previa inline usando visor nativo de Drive
             if not is_folder and st.session_state.get(f"show_preview_{item['id']}", False):
                 with st.expander(f"Vista previa: {item['name']}", expanded=True):
-                    if is_indexed:
-                        try:
-                            all_docs = st.session_state.chatbot.vectorstore.get(include=["documents", "metadatas"])
-                            chunks = [
-                                d for d, m in zip(all_docs.get("documents", []), all_docs.get("metadatas", []))
-                                if m and m.get("source") == item["name"]
-                            ]
-                            preview = "\n\n".join(chunks[:2]) if chunks else "(sin texto)"
-                            st.text(preview[:800] + ("..." if len(preview) > 800 else ""))
-                        except Exception:
-                            st.caption("No se pudo cargar la vista previa.")
-                    elif not is_demo:
-                        with st.spinner("Descargando..."):
+                    if not is_demo:
+                        # Iframe con el visor de Drive (funciona para archivos compartidos)
+                        embed_url = f"https://drive.google.com/file/d/{item['id']}/preview"
+                        st.components.v1.iframe(embed_url, height=520, scrolling=True)
+                        # Texto indexado adicional si esta en RAG
+                        if is_indexed:
                             try:
-                                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-                                    fio = ex.submit(download_file_to_io, item["id"], drive_api_key).result(timeout=25)
-                                if fio:
-                                    txt = extract_text_from_file(fio, item["name"])
-                                    st.text(txt[:800] + ("..." if len(txt) > 800 else ""))
-                            except Exception as e:
-                                st.caption(f"Error: {e}")
+                                all_docs = st.session_state.chatbot.vectorstore.get(
+                                    include=["documents", "metadatas"]
+                                )
+                                chunks = [
+                                    d for d, m in zip(all_docs.get("documents", []), all_docs.get("metadatas", []))
+                                    if m and m.get("source") == item["name"]
+                                ]
+                                if chunks:
+                                    with st.expander("Texto en JuanMitaBot"):
+                                        st.text("\n\n".join(chunks[:2])[:1000])
+                            except Exception:
+                                pass
                     else:
                         st.caption("Vista previa no disponible en modo demo.")
 

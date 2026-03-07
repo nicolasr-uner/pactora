@@ -63,24 +63,26 @@ def _bg_startup_index(chatbot, drive_root_id, drive_api_key):
                      batch_start + 1, min(batch_start + BATCH, len(files_to_index)))
 
             docs = []
+            gemini_key = chatbot.api_key  # para extraccion de PDFs escaneados
             with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
                 future_to_file = {ex.submit(download_file_to_io, f["id"], drive_api_key): f for f in batch}
-                # as_completed() actualiza el contador en cuanto cada descarga termina
                 for future in concurrent.futures.as_completed(future_to_file, timeout=120):
                     f = future_to_file[future]
                     try:
                         fio = future.result()
                         prog["last_file"] = f["name"]
                         if fio:
-                            txt = extract_text_from_file(fio, f["name"])
+                            # Pasa la Gemini key para extraer PDFs escaneados via Files API
+                            txt = extract_text_from_file(fio, f["name"], gemini_api_key=gemini_key)
                             if txt and not txt.startswith("Error"):
-                                docs.append((txt, f["name"], {}))
+                                # Guarda drive_id en metadata para preview directo
+                                docs.append((txt, f["name"], {"drive_id": f["id"]}))
                                 prog["downloaded"] += 1
                                 log.info("OK (%d/%d): %s — %d chars",
                                          prog["downloaded"], prog["total"], f["name"], len(txt))
                             else:
-                                prog["downloaded"] += 1  # contar aunque no tenga texto
-                                log.warning("Sin texto: %s", f["name"])
+                                prog["downloaded"] += 1
+                                log.warning("Sin texto (PDF escaneado sin OCR?): %s", f["name"])
                         else:
                             prog["downloaded"] += 1
                             log.warning("Descarga vacia: %s", f["name"])

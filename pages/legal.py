@@ -52,35 +52,42 @@ with tab_biblioteca:
                     st.session_state["cmp_preselect_left"] = src
                     st.toast(f"'{src[:40]}' seleccionado — ve a Comparar Contratos", icon="✅")
 
-                # Preview inline desde ChromaDB
+                # Preview inline — Drive iframe + texto indexado
                 if st.session_state.get(prev_key, False):
                     with st.expander(f"Contenido: {src}", expanded=True):
+                        # Buscar drive_id en metadata de ChromaDB
+                        drive_id = None
                         try:
                             all_docs = st.session_state.chatbot.vectorstore.get(
                                 include=["documents", "metadatas"]
                             )
-                            chunks = [
-                                d for d, m in zip(
-                                    all_docs.get("documents", []),
-                                    all_docs.get("metadatas", [])
-                                )
-                                if m and m.get("source") == src
-                            ]
-                            if chunks:
+                            chunks = []
+                            for d, m in zip(all_docs.get("documents", []), all_docs.get("metadatas", [])):
+                                if m and m.get("source") == src:
+                                    chunks.append(d)
+                                    if not drive_id and m.get("drive_id"):
+                                        drive_id = m["drive_id"]
+                        except Exception:
+                            chunks = []
+
+                        if drive_id:
+                            embed_url = f"https://drive.google.com/file/d/{drive_id}/preview"
+                            st.components.v1.iframe(embed_url, height=500, scrolling=True)
+
+                        if chunks:
+                            with st.expander("Texto indexado en JuanMitaBot"):
                                 preview = "\n\n---\n\n".join(chunks[:4])
                                 st.text_area(
                                     "preview",
                                     value=preview[:4000] + ("..." if len(preview) > 4000 else ""),
-                                    height=320,
+                                    height=280,
                                     disabled=True,
                                     label_visibility="collapsed",
                                     key=f"ta_prev_{src}"
                                 )
-                                st.caption(f"{len(chunks)} fragmentos indexados — mostrando primeros 4")
-                            else:
-                                st.caption("No se encontro contenido para este contrato.")
-                        except Exception as e:
-                            st.caption(f"Error al cargar preview: {e}")
+                                st.caption(f"{len(chunks)} fragmentos — mostrando primeros 4")
+                        elif not drive_id:
+                            st.caption("Sin preview disponible. El drive_id no esta en el indice — re-indexa para activarlo.")
 
                 # Analisis inline
                 if st.session_state.get("bib_analysis_target") == src:
