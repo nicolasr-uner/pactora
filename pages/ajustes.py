@@ -8,34 +8,6 @@ page_header()
 st.header("Configuracion")
 st.markdown("---")
 
-# ─── Status visible sin autenticacion ────────────────────────────────────────
-col_s1, col_s2 = st.columns(2)
-with col_s1:
-    if st.session_state.gemini_api_key:
-        st.success("Gemini API: Configurada")
-    else:
-        st.error("Gemini API: No configurada")
-with col_s2:
-    if "drive_root_id" in st.session_state:
-        n = st.session_state.chatbot.get_stats()["total_docs"]
-        st.success(f"Google Drive: Conectado — {n} contrato(s) indexado(s)")
-    else:
-        st.warning("Google Drive: No conectado")
-
-st.markdown("---")
-
-# ─── Clave de administrador ───────────────────────────────────────────────────
-_admin_pw = st.secrets.get("ADMIN_PASSWORD", "pactora2024")
-_entered = st.text_input(
-    "clave_admin",
-    type="password",
-    placeholder="Clave de administrador...",
-    label_visibility="collapsed"
-)
-if _entered != _admin_pw:
-    st.caption("Ingresa la clave de administrador para acceder a la configuracion.")
-    st.stop()
-
 col_gemini, col_drive = st.columns(2)
 
 # ─── Gemini API ───────────────────────────────────────────────────────────────
