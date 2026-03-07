@@ -94,36 +94,49 @@ if "drive_root_id" in st.session_state and st.session_state.get("drive_api_key",
     col_test, col_reindex = st.columns(2)
 
     with col_test:
-        st.markdown("#### Test de descarga")
-        st.caption("Verifica si la autenticacion puede descargar archivos del Drive.")
-        if st.button("Probar descarga", use_container_width=True):
-            with st.spinner("Buscando archivos..."):
+        st.markdown("#### Test de descarga y extraccion")
+        st.caption("Descarga el primer archivo y extrae texto para verificar que la indexacion funcionara.")
+        if st.button("Probar descarga + extraccion", use_container_width=True):
+            with st.spinner("Probando..."):
                 try:
                     from utils.drive_manager import get_recursive_files, download_file_to_io
+                    from utils.file_parser import extract_text_from_file
+                    import io as _io
                     files = get_recursive_files(
                         st.session_state.drive_root_id,
                         api_key=st.session_state.drive_api_key
                     )
                     if not files:
-                        st.warning("No se encontraron archivos PDF/DOCX. Verifica el ID de carpeta.")
+                        st.warning("No se encontraron archivos PDF/DOCX.")
                     else:
-                        st.info(f"Encontrados {len(files)} archivos. Probando descarga del primero...")
+                        st.info(f"Encontrados {len(files)} archivos. Probando el primero: **{files[0]['name']}**")
                         test_file = files[0]
-                        fio = download_file_to_io(
-                            test_file["id"],
-                            api_key=st.session_state.drive_api_key
-                        )
-                        if fio:
-                            data = fio.read()
-                            st.success(
-                                f"Descarga exitosa: **{test_file['name']}** "
-                                f"({len(data):,} bytes). La indexacion funcionara correctamente."
-                            )
+                        fio = download_file_to_io(test_file["id"], api_key=st.session_state.drive_api_key)
+                        if not fio:
+                            st.error("Descarga fallida — verifica la Cuenta de Servicio.")
                         else:
-                            st.error(
-                                f"No se pudo descargar **{test_file['name']}**. "
-                                "Los archivos son privados — necesitas configurar una Cuenta de Servicio (ver abajo)."
-                            )
+                            file_bytes = fio.read()
+                            st.success(f"Descarga OK: {len(file_bytes):,} bytes")
+
+                            # Test extraccion de texto
+                            from utils.file_parser import _extract_pdf_bytes, _extract_with_gemini
+                            pypdf_text = _extract_pdf_bytes(file_bytes)
+                            if pypdf_text.strip():
+                                st.success(f"pypdf extrajo **{len(pypdf_text):,} chars**")
+                                st.text_area("Vista previa texto", value=pypdf_text[:500], height=120, disabled=True)
+                            else:
+                                st.warning("pypdf no extrajo texto (PDF escaneado). Probando Gemini OCR...")
+                                gemini_key = st.session_state.get("gemini_api_key", "")
+                                if gemini_key:
+                                    with st.spinner("Extrayendo con Gemini (puede tardar 10-20s)..."):
+                                        gemini_text = _extract_with_gemini(file_bytes, test_file["name"], gemini_key)
+                                    if gemini_text.strip():
+                                        st.success(f"Gemini OCR extrajo **{len(gemini_text):,} chars**")
+                                        st.text_area("Vista previa texto", value=gemini_text[:500], height=120, disabled=True)
+                                    else:
+                                        st.error("Gemini tampoco extrajo texto. Revisa la API Key de Gemini o el archivo.")
+                                else:
+                                    st.error("No hay API Key de Gemini configurada para el OCR.")
                 except Exception as e:
                     st.error(f"Error en test: {e}")
 
