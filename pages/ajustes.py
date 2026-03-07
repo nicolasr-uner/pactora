@@ -180,6 +180,58 @@ if "drive_root_id" in st.session_state and st.session_state.get("drive_api_key",
 
     st.markdown("---")
 
+# ─── Debug: estado interno ────────────────────────────────────────────────────
+if "drive_root_id" in st.session_state and st.session_state.get("drive_api_key", "") not in ("", "DEMO_KEY"):
+    with st.expander("Debug: estado interno y prueba sincrona"):
+        from utils.shared import _startup_index_progress
+        p = _startup_index_progress
+        st.json({
+            "indexacion_status": p["status"],
+            "total": p["total"],
+            "downloaded": p["downloaded"],
+            "indexed": p["indexed"],
+            "last_file": p["last_file"],
+            "error": p["error"],
+            "chatbot_indexed_sources_count": len(st.session_state.chatbot._indexed_sources),
+            "chromadb_docs": st.session_state.chatbot.get_stats()["total_docs"],
+            "chromadb_chunks": st.session_state.chatbot.get_stats()["total_chunks"],
+        })
+
+        if st.button("Indexar primeros 5 archivos (sincrono — muestra resultado directo)"):
+            from utils.drive_manager import get_recursive_files, download_file_to_io
+            from utils.file_parser import extract_text_from_file
+            with st.spinner("Procesando..."):
+                files = get_recursive_files(
+                    st.session_state.drive_root_id,
+                    api_key=st.session_state.drive_api_key
+                )
+                st.write(f"Total archivos en Drive: {len(files)}")
+                st.write(f"Ya en _indexed_sources: {len(st.session_state.chatbot._indexed_sources)}")
+                gemini_key = st.session_state.chatbot.api_key
+                docs = []
+                for f in files[:5]:
+                    fio = download_file_to_io(f["id"], api_key=st.session_state.drive_api_key)
+                    if not fio:
+                        st.error(f"Descarga fallo: {f['name']}")
+                        continue
+                    txt = extract_text_from_file(fio, f["name"], gemini_api_key=gemini_key)
+                    if txt and not txt.startswith("Error"):
+                        docs.append((txt, f["name"], {"drive_id": f["id"]}))
+                        st.success(f"OK: {f['name']} — {len(txt):,} chars")
+                    else:
+                        st.warning(f"Sin texto: {f['name']}")
+                if docs:
+                    ok, msg = st.session_state.chatbot.vector_ingest_multiple(docs)
+                    if ok:
+                        st.success(f"Indexados en ChromaDB: {msg}")
+                    else:
+                        st.error(f"Error al indexar: {msg}")
+                    st.write(f"Stats ahora: {st.session_state.chatbot.get_stats()}")
+                else:
+                    st.error("Ningun archivo produjo texto — todos fallaron extraccion.")
+
+st.markdown("---")
+
 # ─── Guia de Cuenta de Servicio ───────────────────────────────────────────────
 with st.expander("Como configurar Cuenta de Servicio (para archivos privados de Drive)"):
     st.markdown("""
