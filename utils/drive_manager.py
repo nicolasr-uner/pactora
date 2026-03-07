@@ -143,7 +143,7 @@ def get_folder_contents(folder_id: str, api_key: str = None):
 
 
 def _do_download(service, file_id: str) -> io.BytesIO:
-    request = service.files().get_media(fileId=file_id)
+    request = service.files().get_media(fileId=file_id, supportsAllDrives=True)
     file_io = io.BytesIO()
     downloader = MediaIoBaseDownload(file_io, request)
     done = False
@@ -153,31 +153,49 @@ def _do_download(service, file_id: str) -> io.BytesIO:
     return file_io
 
 
+def _download_with_requests(file_id: str, api_key: str) -> Optional[io.BytesIO]:
+    """Descarga directa via requests con API key. Funciona para archivos publicos/compartidos."""
+    try:
+        import requests as _req
+        url = (
+            f"https://www.googleapis.com/drive/v3/files/{file_id}"
+            f"?alt=media&supportsAllDrives=true&key={api_key}"
+        )
+        resp = _req.get(url, timeout=60)
+        if resp.status_code == 200:
+            return io.BytesIO(resp.content)
+        print(f"[drive] requests HTTP {resp.status_code} para {file_id}")
+        if resp.status_code in (401, 403):
+            print(f"[drive] ACCESO DENEGADO — el archivo es privado. "
+                  f"Configura una Cuenta de Servicio en Ajustes para descargar archivos privados.")
+    except Exception as e:
+        print(f"[drive] requests fallo para {file_id}: {e}")
+    return None
+
+
 def download_file_to_io(file_id: str, api_key: str = None) -> Optional[io.BytesIO]:
     """
     Descarga un archivo de Drive a BytesIO.
     Orden de intentos:
       1. Service Account (st.secrets[GOOGLE_SERVICE_ACCOUNT]) — descarga privada
       2. OAuth2 local (token.json) — desarrollo local
-      3. API Key publica — solo funciona si el archivo es publico
+      3. requests con API Key — funciona si el archivo es publico/compartido publicamente
     """
-    # 1. Service Account o OAuth (autenticacion completa)
+    # 1. Service Account o OAuth (autenticacion completa — funciona con archivos privados)
     try:
         service = get_drive_service()
         if service:
             return _do_download(service, file_id)
     except HttpError as e:
-        print(f"[drive] Auth completa fallo para {file_id}: {e}")
+        print(f"[drive] Auth completa fallo para {file_id}: HTTP {e.resp.status} — {e}")
     except Exception as e:
         print(f"[drive] Error inesperado (auth completa) para {file_id}: {e}")
 
-    # 2. API Key como ultimo recurso (funciona solo para archivos publicos)
+    # 2. requests con API Key (funciona solo para archivos compartidos publicamente)
     if api_key:
-        try:
-            service = get_drive_service_with_apikey(api_key)
-            return _do_download(service, file_id)
-        except Exception as e:
-            print(f"[drive] API key fallo para {file_id}: {e}")
+        result = _download_with_requests(file_id, api_key)
+        if result:
+            return result
 
     return None
 
