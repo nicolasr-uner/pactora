@@ -1,10 +1,13 @@
 import io
+import logging
 import os
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 from typing import Optional, Dict, Any, List
 
 from utils.auth_helper import get_drive_service, get_drive_service_with_apikey
+
+_log = logging.getLogger("pactora")
 
 def search_documents(query: str = "", max_results: int = 20) -> List[Dict]:
     """
@@ -149,6 +152,9 @@ def _do_download(service, file_id: str) -> io.BytesIO:
     done = False
     while not done:
         _, done = downloader.next_chunk()
+    size = file_io.tell()
+    if size == 0:
+        _log.error("[drive] _do_download: respuesta vacia (0 bytes) para file_id=%s", file_id)
     file_io.seek(0)
     return file_io
 
@@ -164,12 +170,11 @@ def _download_with_requests(file_id: str, api_key: str) -> Optional[io.BytesIO]:
         resp = _req.get(url, timeout=60)
         if resp.status_code == 200:
             return io.BytesIO(resp.content)
-        print(f"[drive] requests HTTP {resp.status_code} para {file_id}")
+        _log.error("[drive] requests HTTP %s para %s", resp.status_code, file_id)
         if resp.status_code in (401, 403):
-            print(f"[drive] ACCESO DENEGADO — el archivo es privado. "
-                  f"Configura una Cuenta de Servicio en Ajustes para descargar archivos privados.")
+            _log.error("[drive] ACCESO DENEGADO para %s — archivo privado, SA no configurada", file_id)
     except Exception as e:
-        print(f"[drive] requests fallo para {file_id}: {e}")
+        _log.error("[drive] requests fallo para %s: %s", file_id, e)
     return None
 
 
@@ -187,9 +192,9 @@ def download_file_to_io(file_id: str, api_key: str = None) -> Optional[io.BytesI
         if service:
             return _do_download(service, file_id)
     except HttpError as e:
-        print(f"[drive] Auth completa fallo para {file_id}: HTTP {e.resp.status} — {e}")
+        _log.error("[drive] Auth completa fallo para %s: HTTP %s — %s", file_id, e.resp.status, e)
     except Exception as e:
-        print(f"[drive] Error inesperado (auth completa) para {file_id}: {e}")
+        _log.error("[drive] Error inesperado (auth completa) para %s: %s", file_id, e)
 
     # 2. requests con API Key (funciona solo para archivos compartidos publicamente)
     if api_key:
