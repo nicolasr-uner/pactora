@@ -114,4 +114,6 @@ def _extract_with_gemini(file_bytes: bytes, filename: str, api_key: str) -> str:
             os.unlink(tmp_path)
 
     except Exception as e:
-        return ""
+        import logging
+        logging.getLogger("pactora").error("[gemini_ocr] Fallo para %s: %s", filename, e)
+        return f"Error OCR: {e}"

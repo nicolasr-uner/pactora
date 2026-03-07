@@ -200,9 +200,14 @@ def _bg_startup_index(api_key, drive_root_id, drive_api_key):
                                 prog["downloaded"] += 1
                                 log.info("OK (%d/%d): %s — %d chars",
                                          prog["downloaded"], prog["total"], f["name"], len(txt))
+                            elif txt and txt.startswith("Error"):
+                                prog["downloaded"] += 1
+                                prog["error"] = f"{f['name']}: {txt[:100]}"
+                                log.warning("Error extraccion %s: %s", f["name"], txt[:100])
                             else:
                                 prog["downloaded"] += 1
-                                log.warning("Sin texto (PDF escaneado sin OCR?): %s", f["name"])
+                                prog["error"] = f"{f['name']}: sin texto (PDF escaneado sin OCR)"
+                                log.warning("Sin texto: %s — gemini_key=%s", f["name"], bool(gemini_key))
                         else:
                             prog["downloaded"] += 1
                             log.warning("Descarga vacia: %s", f["name"])
