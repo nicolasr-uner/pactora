@@ -12,4 +12,5 @@ langchain-community
 langchain-google-genai
 langchain-text-splitters
 python-dotenv
+streamlit-calendar
 

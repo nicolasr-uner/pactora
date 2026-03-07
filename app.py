@@ -16,12 +16,39 @@ if sys.version_info >= (3, 14):
         _pv1m.ModelMetaclass.__new__ = _patched_metaclass_new
 
 import streamlit as st
+from utils.shared import apply_styles, page_header
 
 st.set_page_config(
     page_title="Pactora CLM — Unergy",
     page_icon="🏛",
     layout="wide"
 )
+
+# ─── Gmail OAuth Gate ─────────────────────────────────────────────────────────
+_auth_configured = bool(st.secrets.get("auth", {}).get("google", {}).get("client_id", ""))
+if _auth_configured:
+    if not st.user.is_logged_in:
+        apply_styles()
+        col = st.columns([1, 2, 1])[1]
+        with col:
+            page_header()
+            st.markdown("### Acceso restringido")
+            st.info("Inicia sesion con tu cuenta Gmail corporativa para continuar.")
+            st.button(
+                "Iniciar sesion con Google",
+                on_click=st.login,
+                args=("google",),
+                type="primary",
+                use_container_width=True
+            )
+        st.stop()
+    _allowed = list(st.secrets.get("allowed_emails", []))
+    if _allowed and st.user.email not in _allowed:
+        apply_styles()
+        page_header()
+        st.error(f"Acceso denegado para **{st.user.email}**. Contacta al administrador.")
+        st.button("Cerrar sesion", on_click=st.logout)
+        st.stop()
 
 pg = st.navigation({
     "Principal": [

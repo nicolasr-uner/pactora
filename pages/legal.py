@@ -1,16 +1,17 @@
 import streamlit as st
 import io
 import datetime
-from utils.shared import apply_styles, page_header, init_session_state
+from utils.shared import apply_styles, page_header, init_session_state, api_status_banner
 
 apply_styles()
 init_session_state()
 
 page_header()
+api_status_banner()
 st.header("Analisis de Riesgos y Contratos")
 
-tab_upload, tab_editor, tab_versions = st.tabs(
-    ["Cargar Contrato", "Editor de Borrador", "Historial de Versiones"]
+tab_upload, tab_editor, tab_versions, tab_compare = st.tabs(
+    ["Cargar Contrato", "Editor de Borrador", "Historial de Versiones", "Comparar Contratos"]
 )
 
 # ─── Cargar contrato ──────────────────────────────────────────────────────────
@@ -105,6 +106,68 @@ with tab_editor:
                 )
             st.markdown("#### Analisis de cambios")
             st.markdown(analysis)
+
+# ─── Comparar contratos ───────────────────────────────────────────────────────
+with tab_compare:
+    stats_cmp = st.session_state.chatbot.get_stats()
+    col_left, col_right = st.columns([1, 1])
+
+    with col_left:
+        st.markdown("#### Contratos de referencia (indexados)")
+        if not stats_cmp["sources"]:
+            st.info("No hay contratos indexados. Conecta Drive en Ajustes.")
+        else:
+            search_filter = st.text_input(
+                "Filtrar contratos", placeholder="Buscar por nombre...", key="cmp_search"
+            )
+            filtered = [s for s in stats_cmp["sources"] if search_filter.lower() in s.lower()] \
+                if search_filter else stats_cmp["sources"]
+            selected_contracts = st.multiselect(
+                "Selecciona contratos a comparar",
+                options=filtered,
+                default=[],
+                key="cmp_selected"
+            )
+
+    with col_right:
+        st.markdown("#### Contrato a comparar (sube un archivo)")
+        up_cmp = st.file_uploader(
+            "Sube el nuevo contrato (PDF o DOCX)",
+            type=["pdf", "docx"],
+            key="cmp_upload"
+        )
+        if up_cmp:
+            st.caption(f"Archivo cargado: {up_cmp.name}")
+
+    if st.button("Comparar con JuanMitaBot", type="primary", use_container_width=True,
+                 key="btn_compare"):
+        if not up_cmp:
+            st.error("Sube un contrato para comparar.")
+        elif not selected_contracts:
+            st.error("Selecciona al menos un contrato de referencia.")
+        else:
+            from utils.file_parser import extract_text_from_file
+            text_new = extract_text_from_file(io.BytesIO(up_cmp.read()), up_cmp.name)
+            if not text_new or text_new.startswith("Error"):
+                st.error(f"No se pudo extraer texto: {text_new}")
+            else:
+                # Indexar temporalmente si no esta
+                if up_cmp.name not in st.session_state.chatbot._indexed_sources:
+                    with st.spinner("Indexando contrato nuevo..."):
+                        st.session_state.chatbot.vector_ingest(text_new, up_cmp.name, {})
+
+                refs = ", ".join(selected_contracts)
+                with st.spinner("JuanMitaBot comparando contratos..."):
+                    analysis = st.session_state.chatbot.ask_question(
+                        f"Compara el contrato '{up_cmp.name}' con los siguientes contratos de referencia: "
+                        f"{refs}. "
+                        f"Identifica diferencias y similitudes en: clausulas principales, montos o valores, "
+                        f"plazos y fechas, obligaciones de cada parte, penalidades, y nivel de riesgo. "
+                        f"Para cada diferencia relevante usa semaforo ROJO/AMARILLO/VERDE. "
+                        f"Organiza la respuesta por seccion."
+                    )
+                st.markdown("### Resultado de la comparacion")
+                st.markdown(analysis)
 
 # ─── Historial de versiones ───────────────────────────────────────────────────
 with tab_versions:

@@ -1,10 +1,11 @@
 import streamlit as st
-from utils.shared import apply_styles, page_header, init_session_state, run_drive_indexation
+from utils.shared import apply_styles, page_header, init_session_state, run_drive_indexation, api_status_banner
 
 apply_styles()
 init_session_state()
 
 page_header()
+api_status_banner()
 st.header("Configuracion")
 st.markdown("---")
 
