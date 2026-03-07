@@ -84,7 +84,7 @@ with col_drive:
             st.rerun()
 
     if "drive_root_id" in st.session_state:
-        st.caption(f"Conectado: {st.session_state.drive_root_id[:30]}")
+        st.caption(f"Conectado: {st.session_state.drive_root_id}")
 
 st.markdown("---")
 
