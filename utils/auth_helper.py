@@ -4,59 +4,94 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
-# Scopes exigidos: Lectura estricta para documentos, permisos para crear carpetas, y control sobre eventos de calendario.
 SCOPES = [
     'https://www.googleapis.com/auth/drive.readonly',
     'https://www.googleapis.com/auth/drive.file',
     'https://www.googleapis.com/auth/calendar.events'
 ]
 
+
+def get_drive_service_sa():
+    """
+    Retorna Drive service usando Service Account desde st.secrets.
+    Esta es la unica forma de descargar archivos privados de Drive en produccion.
+    Retorna None si no hay SA configurada.
+    """
+    try:
+        import streamlit as st
+        from google.oauth2 import service_account
+
+        sa = st.secrets.get("GOOGLE_SERVICE_ACCOUNT", {})
+        if not sa:
+            return None
+
+        creds = service_account.Credentials.from_service_account_info(
+            dict(sa),
+            scopes=['https://www.googleapis.com/auth/drive.readonly']
+        )
+        return build('drive', 'v3', credentials=creds)
+    except Exception:
+        return None
+
+
 def authenticate_google_apis():
     """
-    Gestiona la autenticación leyendo credentials.json / token.json de forma segura,
-    sin exposición al frontend ni posibilidad de commitearlo accidentalmente.
+    Autenticacion OAuth2 local (solo funciona con credentials.json en disco).
+    En produccion (Streamlit Cloud) usa get_drive_service_sa() en su lugar.
     """
     creds = None
-    # El archivo token.json almacena los tokens de acceso del usuario de forma local
     if os.path.exists('token.json'):
         creds = Credentials.from_authorized_user_file('token.json', SCOPES)
-        
-    # Si no hay credenciales (válidas) disponibles, solicita inicio de sesión
+
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
             if not os.path.exists('credentials.json'):
-                # Silenciamos el error para permitir modo demo o carga local
                 return None
             flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
             creds = flow.run_local_server(port=0)
 
-            
-        # Guarda las credenciales autorizadas en token.json
         with open('token.json', 'w') as token:
             token.write(creds.to_json())
 
     return creds
 
+
 def get_drive_service():
-    """Retorna el cliente para Google Drive API usando OAuth2.
-    Retorna None si las credenciales no están disponibles (ej. en cloud deploy)."""
+    """
+    Retorna Drive service: primero intenta Service Account (produccion),
+    luego OAuth2 local (desarrollo). Retorna None si ninguno esta disponible.
+    """
+    # 1. Service Account (Streamlit Cloud / produccion)
+    sa_service = get_drive_service_sa()
+    if sa_service:
+        return sa_service
+    # 2. OAuth2 local (desarrollo con credentials.json)
     try:
         creds = authenticate_google_apis()
-        return build('drive', 'v3', credentials=creds)
-    except (FileNotFoundError, Exception):
-        return None
+        if creds:
+            return build('drive', 'v3', credentials=creds)
+    except Exception:
+        pass
+    return None
+
 
 def get_drive_service_with_apikey(api_key: str):
-    """Retorna el cliente para Google Drive API usando una API Key Pública."""
+    """
+    Drive service con API Key publica.
+    SOLO sirve para LISTAR archivos publicos, NO para descargar archivos privados.
+    Para descargas privadas usa get_drive_service() (Service Account).
+    """
     return build('drive', 'v3', developerKey=api_key)
 
+
 def get_calendar_service():
-    """Retorna el cliente para Google Calendar API.
-    Retorna None si las credenciales no están disponibles."""
+    """Retorna Calendar service. Retorna None si no hay credenciales."""
     try:
         creds = authenticate_google_apis()
-        return build('calendar', 'v3', credentials=creds)
-    except (FileNotFoundError, Exception):
-        return None
+        if creds:
+            return build('calendar', 'v3', credentials=creds)
+    except Exception:
+        pass
+    return None
