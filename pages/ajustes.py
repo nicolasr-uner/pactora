@@ -99,9 +99,17 @@ if "drive_root_id" in st.session_state and st.session_state.get("drive_api_key",
         if st.button("Probar descarga + extraccion", use_container_width=True):
             with st.spinner("Probando..."):
                 try:
-                    from utils.drive_manager import get_recursive_files, download_file_to_io
-                    from utils.file_parser import extract_text_from_file
+                    from utils.drive_manager import get_recursive_files, _do_download, _download_with_requests
+                    from utils.auth_helper import get_drive_service_sa, get_drive_service
                     import io as _io
+
+                    # Paso 1: Verificar SA
+                    sa_service = get_drive_service_sa()
+                    if sa_service:
+                        st.success("Cuenta de Servicio cargada correctamente")
+                    else:
+                        st.error("Cuenta de Servicio NO cargada — revisa el formato de los secrets")
+
                     files = get_recursive_files(
                         st.session_state.drive_root_id,
                         api_key=st.session_state.drive_api_key
@@ -109,36 +117,53 @@ if "drive_root_id" in st.session_state and st.session_state.get("drive_api_key",
                     if not files:
                         st.warning("No se encontraron archivos PDF/DOCX.")
                     else:
-                        st.info(f"Encontrados {len(files)} archivos. Probando el primero: **{files[0]['name']}**")
                         test_file = files[0]
-                        fio = download_file_to_io(test_file["id"], api_key=st.session_state.drive_api_key)
-                        if not fio:
-                            st.error("Descarga fallida — verifica la Cuenta de Servicio.")
-                        else:
-                            file_bytes = fio.read()
-                            st.success(f"Descarga OK: {len(file_bytes):,} bytes")
+                        st.info(f"Probando: **{test_file['name']}** (id: {test_file['id'][:20]}...)")
 
-                            # Test extraccion de texto
+                        # Paso 2: Descargar con SA
+                        fio = None
+                        if sa_service:
+                            try:
+                                fio = _do_download(sa_service, test_file["id"])
+                                st.success(f"Descarga con SA exitosa: {len(fio.read()):,} bytes")
+                                fio.seek(0)
+                            except Exception as e:
+                                st.error(f"SA descarga fallo: {e}")
+                                fio = None
+
+                        # Paso 3: Fallback con requests si SA fallo
+                        if not fio:
+                            st.warning("Intentando con requests + API Key...")
+                            fio = _download_with_requests(test_file["id"], st.session_state.drive_api_key)
+                            if fio:
+                                st.success(f"requests OK: {len(fio.read()):,} bytes")
+                                fio.seek(0)
+                            else:
+                                st.error("Ambos metodos fallaron. Verifica que compartiste la carpeta con la SA.")
+
+                        # Paso 4: Extraer texto
+                        if fio:
+                            file_bytes = fio.read()
                             from utils.file_parser import _extract_pdf_bytes, _extract_with_gemini
                             pypdf_text = _extract_pdf_bytes(file_bytes)
                             if pypdf_text.strip():
                                 st.success(f"pypdf extrajo **{len(pypdf_text):,} chars**")
-                                st.text_area("Vista previa texto", value=pypdf_text[:500], height=120, disabled=True)
+                                st.text_area("Vista previa", value=pypdf_text[:500], height=120, disabled=True)
                             else:
-                                st.warning("pypdf no extrajo texto (PDF escaneado). Probando Gemini OCR...")
+                                st.warning("pypdf vacio (PDF escaneado). Probando Gemini OCR...")
                                 gemini_key = st.session_state.get("gemini_api_key", "")
                                 if gemini_key:
-                                    with st.spinner("Extrayendo con Gemini (puede tardar 10-20s)..."):
+                                    with st.spinner("Gemini OCR..."):
                                         gemini_text = _extract_with_gemini(file_bytes, test_file["name"], gemini_key)
                                     if gemini_text.strip():
-                                        st.success(f"Gemini OCR extrajo **{len(gemini_text):,} chars**")
-                                        st.text_area("Vista previa texto", value=gemini_text[:500], height=120, disabled=True)
+                                        st.success(f"Gemini extrajo **{len(gemini_text):,} chars**")
+                                        st.text_area("Vista previa", value=gemini_text[:500], height=120, disabled=True)
                                     else:
-                                        st.error("Gemini tampoco extrajo texto. Revisa la API Key de Gemini o el archivo.")
+                                        st.error("Gemini no extrajo texto.")
                                 else:
-                                    st.error("No hay API Key de Gemini configurada para el OCR.")
+                                    st.error("No hay Gemini API Key para OCR.")
                 except Exception as e:
-                    st.error(f"Error en test: {e}")
+                    st.error(f"Error inesperado: {e}")
 
     with col_reindex:
         st.markdown("#### Re-indexar contratos")
