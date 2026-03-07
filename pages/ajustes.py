@@ -1,5 +1,8 @@
 import streamlit as st
-from utils.shared import apply_styles, page_header, init_session_state, run_drive_indexation, api_status_banner
+from utils.shared import (
+    apply_styles, page_header, init_session_state,
+    api_status_banner, force_reindex, _trigger_startup_index,
+)
 
 apply_styles()
 init_session_state()
@@ -23,7 +26,7 @@ with col_gemini:
     </div>""", unsafe_allow_html=True)
 
     if st.session_state.gemini_api_key:
-        st.caption("✓ Configurada")
+        st.caption("Configurada")
     k = st.text_input(
         "API Key",
         value="",
@@ -59,7 +62,7 @@ with col_drive:
         placeholder="ID de carpeta raiz de Drive..."
     )
     if st.session_state.get("drive_api_key", "") and st.session_state.get("drive_api_key") != "DEMO_KEY":
-        st.caption("✓ API Key configurada")
+        st.caption("API Key configurada")
     drive_key_input = st.text_input(
         "Drive API Key",
         value="",
@@ -68,60 +71,125 @@ with col_drive:
         placeholder="API Key de Google Drive..."
     )
 
-    if st.button("Conectar Drive e Indexar contratos", type="primary"):
+    if st.button("Guardar configuracion Drive", type="primary"):
         if not folder_id_input:
             st.error("Ingresa el ID de carpeta.")
-        elif not st.session_state.gemini_api_key:
-            st.error("Configura primero la API Key de Gemini.")
         else:
             st.session_state.drive_root_id = folder_id_input
-            st.session_state.drive_api_key = drive_key_input or "DEMO_KEY"
+            if drive_key_input:
+                st.session_state.drive_api_key = drive_key_input
             st.session_state.current_folder_id = folder_id_input
             st.session_state.folder_history = [(folder_id_input, "Raiz Pactora")]
-            st.session_state.drive_indexed = False
-
-            if st.session_state.drive_api_key != "DEMO_KEY":
-                # Auto-indexar inmediatamente
-                progress_placeholder = st.empty()
-                progress_placeholder.info("JuanMitaBot esta indexando todos los contratos del Drive...")
-                ok, msg = run_drive_indexation(folder_id_input, st.session_state.drive_api_key)
-                st.session_state.drive_indexed = True
-                if ok:
-                    progress_placeholder.success(f"Drive conectado. {msg}")
-                else:
-                    progress_placeholder.warning(f"Drive conectado, pero hubo problemas en la indexacion: {msg}")
-            else:
-                st.session_state.mock_items = [
-                    {"id": "doc1", "name": "Contrato_Demo_Solar.pdf",
-                     "mimeType": "application/pdf"},
-                    {"id": "doc2", "name": "EPC_Demo_Final.docx",
-                     "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"},
-                    {"id": "fold1", "name": "Anexos_Demo",
-                     "mimeType": "application/vnd.google-apps.folder"},
-                ]
-                st.success("Drive conectado en modo demo.")
+            st.success("Configuracion guardada. Usa 'Re-indexar' para iniciar la descarga.")
             st.rerun()
 
     if "drive_root_id" in st.session_state:
-        st.caption(f"Conectado: {st.session_state.drive_root_id[:25]}...")
+        st.caption(f"Conectado: {st.session_state.drive_root_id[:30]}")
 
 st.markdown("---")
 
-# ─── Re-indexar manualmente ───────────────────────────────────────────────────
-if "drive_root_id" in st.session_state and st.session_state.get("drive_api_key", "") != "DEMO_KEY":
-    with st.expander("Re-indexar contratos del Drive"):
-        st.caption("Fuerza una nueva indexacion de todos los archivos PDF/DOCX.")
-        if st.button("Re-indexar ahora"):
-            with st.spinner("JuanMitaBot indexando contratos..."):
-                ok, msg = run_drive_indexation(
-                    st.session_state.drive_root_id,
-                    st.session_state.drive_api_key
-                )
-            if ok:
-                st.success(msg)
-            else:
-                st.warning(msg)
+# ─── Diagnostico y re-indexacion ─────────────────────────────────────────────
+if "drive_root_id" in st.session_state and st.session_state.get("drive_api_key", "") not in ("", "DEMO_KEY"):
+
+    col_test, col_reindex = st.columns(2)
+
+    with col_test:
+        st.markdown("#### Test de descarga")
+        st.caption("Verifica si la autenticacion puede descargar archivos del Drive.")
+        if st.button("Probar descarga", use_container_width=True):
+            with st.spinner("Buscando archivos..."):
+                try:
+                    from utils.drive_manager import get_recursive_files, download_file_to_io
+                    files = get_recursive_files(
+                        st.session_state.drive_root_id,
+                        api_key=st.session_state.drive_api_key
+                    )
+                    if not files:
+                        st.warning("No se encontraron archivos PDF/DOCX. Verifica el ID de carpeta.")
+                    else:
+                        st.info(f"Encontrados {len(files)} archivos. Probando descarga del primero...")
+                        test_file = files[0]
+                        fio = download_file_to_io(
+                            test_file["id"],
+                            api_key=st.session_state.drive_api_key
+                        )
+                        if fio:
+                            data = fio.read()
+                            st.success(
+                                f"Descarga exitosa: **{test_file['name']}** "
+                                f"({len(data):,} bytes). La indexacion funcionara correctamente."
+                            )
+                        else:
+                            st.error(
+                                f"No se pudo descargar **{test_file['name']}**. "
+                                "Los archivos son privados — necesitas configurar una Cuenta de Servicio (ver abajo)."
+                            )
+                except Exception as e:
+                    st.error(f"Error en test: {e}")
+
+    with col_reindex:
+        st.markdown("#### Re-indexar contratos")
+        st.caption("Reinicia la indexacion en background (util tras cambiar credenciales).")
+        if st.button("Re-indexar en background", use_container_width=True, type="primary"):
+            force_reindex()
+            _trigger_startup_index(
+                st.session_state.chatbot,
+                st.session_state.drive_root_id,
+                st.session_state.drive_api_key,
+            )
+            st.success("Indexacion reiniciada en background. El contador aparecera en el banner superior.")
             st.rerun()
+
+    st.markdown("---")
+
+# ─── Guia de Cuenta de Servicio ───────────────────────────────────────────────
+with st.expander("Como configurar Cuenta de Servicio (para archivos privados de Drive)"):
+    st.markdown("""
+**Los archivos privados de Drive requieren autenticacion completa. La API Key solo sirve para listar, no para descargar.**
+
+### Pasos para configurar la Cuenta de Servicio:
+
+**1. Crear la Cuenta de Servicio en Google Cloud Console**
+- Ve a [console.cloud.google.com](https://console.cloud.google.com) → IAM y administracion → Cuentas de servicio
+- Click "Crear cuenta de servicio" → ponle nombre: `pactora-drive`
+- Rol: Visor (o sin rol, ya que el acceso es via Drive)
+- Click "Listo"
+
+**2. Descargar la clave JSON**
+- En la lista de cuentas de servicio, click en `pactora-drive`
+- Pestana "Claves" → "Agregar clave" → "Crear nueva clave" → JSON
+- Se descarga un archivo `pactora-drive-xxxx.json`
+
+**3. Compartir la carpeta de Drive con la Cuenta de Servicio**
+- Abre el archivo JSON descargado y copia el campo `client_email` (algo como `pactora-drive@tu-proyecto.iam.gserviceaccount.com`)
+- Ve a Google Drive → click derecho en la carpeta raiz de contratos → "Compartir"
+- Pega el `client_email` y dale acceso de "Visualizador"
+
+**4. Agregar el JSON a Streamlit Cloud Secrets**
+
+Ve a tu app en Streamlit Cloud → Settings → Secrets, y agrega esto al final:
+
+```toml
+[GOOGLE_SERVICE_ACCOUNT]
+type = "service_account"
+project_id = "tu-proyecto-id"
+private_key_id = "..."
+private_key = "-----BEGIN RSA PRIVATE KEY-----\\n...\\n-----END RSA PRIVATE KEY-----\\n"
+client_email = "pactora-drive@tu-proyecto.iam.gserviceaccount.com"
+client_id = "..."
+auth_uri = "https://accounts.google.com/o/oauth2/auth"
+token_uri = "https://oauth2.googleapis.com/token"
+auth_provider_x509_cert_url = "https://www.googleapis.com/oauth2/v1/certs"
+client_x509_cert_url = "https://www.googleapis.com/robot/v1/metadata/x509/pactora-drive%40tu-proyecto.iam.gserviceaccount.com"
+```
+
+> **Importante:** Reemplaza los valores con los del JSON descargado. El `private_key` debe tener los saltos de linea como `\\n` (dos caracteres, no salto real).
+
+**5. Reiniciar la app y re-indexar**
+- Tras guardar los secrets, reinicia la app desde Streamlit Cloud
+- Ve a Ajustes → "Probar descarga" para verificar
+- Click "Re-indexar en background"
+""")
 
 # ─── Cerrar sesion ────────────────────────────────────────────────────────────
 st.markdown("<br>", unsafe_allow_html=True)
