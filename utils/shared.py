@@ -192,7 +192,7 @@ def _drive_status_widget():
     if p["status"] == "running":
         total = p["total"] or 1
         done = p["downloaded"]
-        pct = done / total
+        pct = min(done / total, 1.0)
         st.info(
             f"Indexando contratos... **{done}/{total}** procesados  |  "
             f"Indexados en RAG: **{p['indexed']}**",
