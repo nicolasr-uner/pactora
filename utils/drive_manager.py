@@ -154,18 +154,32 @@ def _do_download(service, file_id: str) -> io.BytesIO:
 
 
 def download_file_to_io(file_id: str, api_key: str = None) -> Optional[io.BytesIO]:
-    """Descarga un archivo de Drive a BytesIO. Con fallback OAuth si la API key falla."""
+    """
+    Descarga un archivo de Drive a BytesIO.
+    Orden de intentos:
+      1. Service Account (st.secrets[GOOGLE_SERVICE_ACCOUNT]) — descarga privada
+      2. OAuth2 local (token.json) — desarrollo local
+      3. API Key publica — solo funciona si el archivo es publico
+    """
+    # 1. Service Account o OAuth (autenticacion completa)
     try:
-        service = get_drive_service_with_apikey(api_key) if api_key else get_drive_service()
-        return _do_download(service, file_id)
-    except HttpError as error:
-        if api_key and error.resp.status in (401, 403):
-            try:
-                return _do_download(get_drive_service(), file_id)
-            except Exception as e2:
-                print(f"OAuth fallback también falló para {file_id}: {e2}")
-        print(f"Error descargando {file_id}: {error}")
-        return None
+        service = get_drive_service()
+        if service:
+            return _do_download(service, file_id)
+    except HttpError as e:
+        print(f"[drive] Auth completa fallo para {file_id}: {e}")
+    except Exception as e:
+        print(f"[drive] Error inesperado (auth completa) para {file_id}: {e}")
+
+    # 2. API Key como ultimo recurso (funciona solo para archivos publicos)
+    if api_key:
+        try:
+            service = get_drive_service_with_apikey(api_key)
+            return _do_download(service, file_id)
+        except Exception as e:
+            print(f"[drive] API key fallo para {file_id}: {e}")
+
+    return None
 
 
 def get_recursive_files(folder_id: str, api_key: str = None) -> List[Dict]:
