@@ -1,8 +1,11 @@
+import logging
 import os
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
+
+_log = logging.getLogger("pactora")
 
 SCOPES = [
     'https://www.googleapis.com/auth/drive.readonly',
@@ -23,6 +26,7 @@ def get_drive_service_sa():
 
         sa = st.secrets.get("GOOGLE_SERVICE_ACCOUNT", {})
         if not sa:
+            _log.warning("[auth] GOOGLE_SERVICE_ACCOUNT no encontrado en st.secrets — SA no disponible")
             return None
 
         creds = service_account.Credentials.from_service_account_info(
@@ -30,7 +34,8 @@ def get_drive_service_sa():
             scopes=['https://www.googleapis.com/auth/drive.readonly']
         )
         return build('drive', 'v3', credentials=creds)
-    except Exception:
+    except Exception as e:
+        _log.error("[auth] get_drive_service_sa fallo: %s", e)
         return None
 
 
