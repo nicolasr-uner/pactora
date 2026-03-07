@@ -27,34 +27,44 @@ CONTEXTO DE CONTRATOS INDEXADOS:
 
 
 class _GeminiEmbeddings(BaseEmbeddings):
-    """Embeddings usando google-generativeai directamente (evita bug v1beta de langchain)."""
+    """Embeddings via REST API v1 — compatible con text-embedding-004."""
 
     def __init__(self, api_key: str, model: str = "models/text-embedding-004"):
+        self._api_key = api_key
         self._model = model
-        genai.configure(api_key=api_key)
+        self._model_id = model.split("/")[-1]
+
+    def _batch_embed(self, texts: List[str], task_type: str) -> List[List[float]]:
+        import requests as _req
+        url = (
+            f"https://generativelanguage.googleapis.com/v1/models/"
+            f"{self._model_id}:batchEmbedContents?key={self._api_key}"
+        )
+        body = {
+            "requests": [
+                {
+                    "model": self._model,
+                    "content": {"parts": [{"text": t}]},
+                    "taskType": task_type,
+                }
+                for t in texts
+            ]
+        }
+        resp = _req.post(url, json=body, timeout=60)
+        resp.raise_for_status()
+        return [e["values"] for e in resp.json()["embeddings"]]
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
         if not texts:
             return []
-        # Batch up to 100 texts per API call (Gemini limit)
         BATCH = 100
         result = []
         for i in range(0, len(texts), BATCH):
-            r = genai.embed_content(
-                model=self._model,
-                content=texts[i : i + BATCH],
-                task_type="retrieval_document"
-            )
-            result.extend(r["embedding"])
+            result.extend(self._batch_embed(texts[i: i + BATCH], "RETRIEVAL_DOCUMENT"))
         return result
 
     def embed_query(self, text: str) -> List[float]:
-        r = genai.embed_content(
-            model=self._model,
-            content=text,
-            task_type="retrieval_query"
-        )
-        return r["embedding"]
+        return self._batch_embed([text], "RETRIEVAL_QUERY")[0]
 
 
 class RAGChatbot:
@@ -67,10 +77,7 @@ class RAGChatbot:
         self.vectorstore: Any = None
 
         if self.api_key:
-            self.embeddings = GoogleGenerativeAIEmbeddings(
-                model="models/embedding-001",
-                google_api_key=self.api_key,
-            )
+            self.embeddings = _GeminiEmbeddings(api_key=self.api_key)
             self.llm = ChatGoogleGenerativeAI(
                 model="gemini-2.0-flash",
                 google_api_key=self.api_key,
