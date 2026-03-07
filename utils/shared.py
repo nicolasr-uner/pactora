@@ -53,37 +53,52 @@ def _bg_startup_index(chatbot, drive_root_id, drive_api_key):
         prog["downloaded"] = 0
         prog["indexed"] = 0
 
-        docs = []
-        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
-            future_to_file = {ex.submit(download_file_to_io, f["id"], drive_api_key): f for f in files_to_index}
-            for future, f in future_to_file.items():
-                try:
-                    log.info("Descargando: %s ...", f["name"])
-                    fio = future.result(timeout=30)
-                    prog["last_file"] = f["name"]
-                    if fio:
-                        txt = extract_text_from_file(fio, f["name"])
-                        if txt and not txt.startswith("Error"):
-                            docs.append((txt, f["name"], {}))
-                            prog["downloaded"] += 1
-                            log.info("OK (%d/%d): %s — %d chars extraidos",
-                                     prog["downloaded"], prog["total"], f["name"], len(txt))
+        # Procesar en lotes de 20 para no saturar memoria con 245 archivos
+        BATCH = 20
+        total_indexed = 0
+        for batch_start in range(0, len(files_to_index), BATCH):
+            batch = files_to_index[batch_start: batch_start + BATCH]
+            log.info("Lote %d/%d — archivos %d a %d",
+                     batch_start // BATCH + 1, -(-len(files_to_index) // BATCH),
+                     batch_start + 1, min(batch_start + BATCH, len(files_to_index)))
+
+            docs = []
+            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
+                future_to_file = {ex.submit(download_file_to_io, f["id"], drive_api_key): f for f in batch}
+                # as_completed() actualiza el contador en cuanto cada descarga termina
+                for future in concurrent.futures.as_completed(future_to_file, timeout=120):
+                    f = future_to_file[future]
+                    try:
+                        fio = future.result()
+                        prog["last_file"] = f["name"]
+                        if fio:
+                            txt = extract_text_from_file(fio, f["name"])
+                            if txt and not txt.startswith("Error"):
+                                docs.append((txt, f["name"], {}))
+                                prog["downloaded"] += 1
+                                log.info("OK (%d/%d): %s — %d chars",
+                                         prog["downloaded"], prog["total"], f["name"], len(txt))
+                            else:
+                                prog["downloaded"] += 1  # contar aunque no tenga texto
+                                log.warning("Sin texto: %s", f["name"])
                         else:
-                            log.warning("Sin texto extraible: %s", f["name"])
-                    else:
-                        log.warning("Descarga vacia: %s", f["name"])
-                except concurrent.futures.TimeoutError:
-                    log.warning("TIMEOUT (30s): %s — omitido", f["name"])
-                except Exception as e:
-                    log.warning("ERROR descargando %s: %s", f["name"], e)
+                            prog["downloaded"] += 1
+                            log.warning("Descarga vacia: %s", f["name"])
+                    except concurrent.futures.TimeoutError:
+                        prog["downloaded"] += 1
+                        log.warning("TIMEOUT: %s — omitido", f["name"])
+                    except Exception as e:
+                        prog["downloaded"] += 1
+                        log.warning("ERROR %s: %s", f["name"], e)
 
-        log.info("Descarga completada: %d/%d archivos con texto valido", len(docs), len(files_to_index))
+            if docs:
+                log.info("Indexando lote: %d documentos a ChromaDB...", len(docs))
+                chatbot.vector_ingest_multiple(docs)
+                total_indexed += len(docs)
+                prog["indexed"] = total_indexed
+                log.info("Lote indexado. Acumulado: %d contrato(s).", total_indexed)
 
-        if docs:
-            log.info("Enviando %d documento(s) a ChromaDB (esto puede tardar)...", len(docs))
-            chatbot.vector_ingest_multiple(docs)
-            prog["indexed"] = len(docs)
-            log.info("ChromaDB actualizado. Total indexado en esta sesion: %d contrato(s).", len(docs))
+        log.info("Descarga completada. Total con texto valido: %d/%d", total_indexed, len(files_to_index))
 
         prog["status"] = "complete"
         log.info("Indexacion finalizada exitosamente.")
@@ -158,37 +173,42 @@ def api_status_banner():
             if "drive_root_id" not in st.session_state:
                 st.warning("Drive no conectado — ve a Ajustes", icon="⚠️")
             else:
-                prog = _startup_index_progress
-                run_every = 4 if prog["status"] == "running" else None
-
-                @st.fragment(run_every=run_every)
-                def _drive_status():
-                    p = _startup_index_progress
-                    try:
-                        n = st.session_state.chatbot.get_stats()["total_docs"]
-                    except Exception:
-                        n = 0
-
-                    if p["status"] == "running":
-                        total = p["total"] or 1
-                        pct = p["downloaded"] / total
-                        st.info(
-                            f"Indexando contratos... {p['downloaded']}/{p['total']} descargados",
-                            icon="⏳"
-                        )
-                        st.progress(pct, text=p["last_file"][:50] if p["last_file"] else "")
-                    elif p["status"] == "error":
-                        st.warning(f"Drive conectado — {n} contrato(s). Error parcial: {p['error']}", icon="⚠️")
-                    elif n > 0:
-                        st.success(f"Drive conectado — {n} contrato(s) indexado(s)", icon="✅")
-                    else:
-                        st.info("Drive conectado — indexacion en curso...", icon="⏳")
-                        if st.button("Actualizar", key="banner_refresh"):
-                            st.rerun()
-
-                _drive_status()
+                _drive_status_widget()
     except Exception:
         pass
+
+
+@st.fragment(run_every=5)
+def _drive_status_widget():
+    """Fragment independiente con auto-refresh cada 5s — sobrevive navegacion."""
+    p = _startup_index_progress
+    try:
+        n = st.session_state.chatbot.get_stats()["total_docs"]
+    except Exception:
+        n = 0
+
+    if p["status"] == "running":
+        total = p["total"] or 1
+        done = p["downloaded"]
+        pct = done / total
+        st.info(
+            f"Indexando contratos... **{done}/{total}** procesados  |  "
+            f"Indexados en RAG: **{p['indexed']}**",
+            icon="⏳"
+        )
+        st.progress(pct, text=f"{p['last_file'][:55]}" if p["last_file"] else "iniciando...")
+    elif p["status"] == "error":
+        st.warning(
+            f"Drive conectado — {n} contrato(s) indexado(s). Error: {p['error']}",
+            icon="⚠️"
+        )
+    elif p["status"] == "complete":
+        st.success(f"Drive conectado — {n} contrato(s) indexado(s)", icon="✅")
+    elif p["status"] == "idle":
+        # Aun no arranco el hilo
+        st.info("Drive conectado — iniciando indexacion...", icon="⏳")
+    else:
+        st.success(f"Drive conectado — {n} contrato(s)", icon="✅")
 
 
 def page_header(subtitle="by Unergy"):
