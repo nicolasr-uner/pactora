@@ -1,3 +1,4 @@
+import os
 import streamlit as st
 import threading
 import logging
@@ -8,6 +9,9 @@ logging.basicConfig(
     datefmt="%H:%M:%S"
 )
 log = logging.getLogger("pactora")
+
+CHROMADB_BACKUP_FILENAME = "_pactora_chromadb_backup.zip"
+CHROMADB_DIR = "./chroma_db"
 
 # ─── Startup indexation — runs once per server process ───────────────────────
 _startup_index_triggered = False
@@ -22,6 +26,106 @@ _startup_index_progress = {
 }
 
 
+def _restore_chromadb_from_drive(drive_root_id: str) -> bool:
+    """Download + extract ChromaDB backup zip from Drive. Returns True if restored."""
+    import zipfile
+    try:
+        from utils.auth_helper import get_drive_service
+        service = get_drive_service()
+        if not service:
+            log.info("[restore] Sin servicio Drive — omitiendo restore.")
+            return False
+
+        query = (
+            f"name='{CHROMADB_BACKUP_FILENAME}' and "
+            f"'{drive_root_id}' in parents and trashed=false"
+        )
+        result = service.files().list(
+            q=query, fields="files(id, modifiedTime)",
+            supportsAllDrives=True, includeItemsFromAllDrives=True
+        ).execute()
+        found = result.get("files", [])
+        if not found:
+            log.info("[restore] No hay backup de ChromaDB en Drive.")
+            return False
+
+        file_id = found[0]["id"]
+        log.info("[restore] Descargando backup ChromaDB (id: %s)...", file_id[:20])
+
+        from utils.drive_manager import _do_download
+        zip_io = _do_download(service, file_id)
+
+        with zipfile.ZipFile(zip_io, "r") as zf:
+            zf.extractall(".")
+
+        log.info("[restore] ChromaDB restaurado desde Drive.")
+        return True
+    except Exception as e:
+        log.error("[restore] Error al restaurar ChromaDB: %s", e)
+        return False
+
+
+def _backup_chromadb_to_drive(drive_root_id: str) -> bool:
+    """Zip ./chroma_db/ and upload to Drive root folder. Returns True if successful."""
+    import zipfile
+    import io
+    try:
+        if not os.path.exists(CHROMADB_DIR):
+            log.warning("[backup] chroma_db no existe — nada que hacer backup.")
+            return False
+
+        from utils.auth_helper import get_drive_service
+        from googleapiclient.http import MediaIoBaseUpload
+
+        service = get_drive_service()
+        if not service:
+            log.warning("[backup] Sin servicio Drive — backup omitido.")
+            return False
+
+        # Zip the chroma_db directory in memory
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+            for root, _dirs, files in os.walk(CHROMADB_DIR):
+                for fname in files:
+                    filepath = os.path.join(root, fname)
+                    arcname = os.path.relpath(filepath, ".")
+                    zf.write(filepath, arcname)
+        zip_size = zip_buffer.tell()
+        zip_buffer.seek(0)
+        log.info("[backup] ZIP creado: %.1f MB", zip_size / 1024 / 1024)
+
+        media = MediaIoBaseUpload(zip_buffer, mimetype="application/zip", resumable=True)
+
+        # Check if backup already exists → update; else → create
+        query = (
+            f"name='{CHROMADB_BACKUP_FILENAME}' and "
+            f"'{drive_root_id}' in parents and trashed=false"
+        )
+        existing = service.files().list(
+            q=query, fields="files(id)",
+            supportsAllDrives=True, includeItemsFromAllDrives=True
+        ).execute().get("files", [])
+
+        if existing:
+            service.files().update(
+                fileId=existing[0]["id"], media_body=media,
+                supportsAllDrives=True
+            ).execute()
+            log.info("[backup] Backup actualizado en Drive.")
+        else:
+            service.files().create(
+                body={"name": CHROMADB_BACKUP_FILENAME, "parents": [drive_root_id]},
+                media_body=media, fields="id",
+                supportsAllDrives=True
+            ).execute()
+            log.info("[backup] Backup creado en Drive.")
+
+        return True
+    except Exception as e:
+        log.error("[backup] Error al hacer backup ChromaDB: %s", e)
+        return False
+
+
 def _bg_startup_index(chatbot, drive_root_id, drive_api_key):
     """Background thread: indexes all Drive contracts once on server startup."""
     prog = _startup_index_progress
@@ -29,6 +133,19 @@ def _bg_startup_index(chatbot, drive_root_id, drive_api_key):
         import concurrent.futures
         from utils.drive_manager import get_recursive_files, download_file_to_io
         from utils.file_parser import extract_text_from_file
+
+        # ── Intentar restaurar ChromaDB desde backup de Drive ───────────────
+        restored = _restore_chromadb_from_drive(drive_root_id)
+        if restored:
+            chatbot._initialize_vectorstore()
+            try:
+                stats = chatbot.get_stats()
+                chatbot._indexed_sources = stats.get("sources", [])
+                log.info("[restore] Vectorstore recargado: %d docs, %d fuentes",
+                         stats["total_docs"], len(chatbot._indexed_sources))
+            except Exception as re:
+                log.warning("[restore] No se pudieron cargar sources: %s", re)
+        # ────────────────────────────────────────────────────────────────────
 
         log.info("Iniciando indexacion de Drive (carpeta: %s)", drive_root_id)
         all_files = get_recursive_files(drive_root_id, api_key=drive_api_key)
@@ -101,6 +218,12 @@ def _bg_startup_index(chatbot, drive_root_id, drive_api_key):
                 log.info("Lote indexado. Acumulado: %d contrato(s).", total_indexed)
 
         log.info("Descarga completada. Total con texto valido: %d/%d", total_indexed, len(files_to_index))
+
+        # ── Guardar backup de ChromaDB en Drive para sobrevivir reinicios ───
+        if total_indexed > 0:
+            log.info("[backup] Guardando ChromaDB en Drive...")
+            _backup_chromadb_to_drive(drive_root_id)
+        # ────────────────────────────────────────────────────────────────────
 
         prog["status"] = "complete"
         log.info("Indexacion finalizada exitosamente.")
