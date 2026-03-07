@@ -1,4 +1,111 @@
 import streamlit as st
+import threading
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [PACTORA] %(levelname)s — %(message)s",
+    datefmt="%H:%M:%S"
+)
+log = logging.getLogger("pactora")
+
+# ─── Startup indexation — runs once per server process ───────────────────────
+_startup_index_triggered = False
+_startup_index_lock = threading.Lock()
+_startup_index_progress = {
+    "status": "idle",   # idle | running | complete | error
+    "total": 0,
+    "downloaded": 0,
+    "indexed": 0,
+    "last_file": "",
+    "error": "",
+}
+
+
+def _bg_startup_index(chatbot, drive_root_id, drive_api_key):
+    """Background thread: indexes all Drive contracts once on server startup."""
+    prog = _startup_index_progress
+    try:
+        import concurrent.futures
+        from utils.drive_manager import get_recursive_files, download_file_to_io
+        from utils.file_parser import extract_text_from_file
+
+        log.info("Iniciando indexacion de Drive (carpeta: %s)", drive_root_id)
+        all_files = get_recursive_files(drive_root_id, api_key=drive_api_key)
+        log.info("Archivos encontrados en Drive: %d", len(all_files))
+
+        files_to_index = [f for f in all_files if f["name"] not in chatbot._indexed_sources]
+        already = len(all_files) - len(files_to_index)
+        if already:
+            log.info("Ya indexados previamente: %d archivo(s)", already)
+
+        if not files_to_index:
+            log.info("Nada nuevo que indexar — todos los archivos ya estan en ChromaDB.")
+            prog["status"] = "complete"
+            return
+
+        log.info("Archivos nuevos a indexar: %d", len(files_to_index))
+        for f in files_to_index:
+            log.info("  - %s", f["name"])
+
+        prog["status"] = "running"
+        prog["total"] = len(files_to_index)
+        prog["downloaded"] = 0
+        prog["indexed"] = 0
+
+        docs = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
+            future_to_file = {ex.submit(download_file_to_io, f["id"], drive_api_key): f for f in files_to_index}
+            for future, f in future_to_file.items():
+                try:
+                    log.info("Descargando: %s ...", f["name"])
+                    fio = future.result(timeout=30)
+                    prog["last_file"] = f["name"]
+                    if fio:
+                        txt = extract_text_from_file(fio, f["name"])
+                        if txt and not txt.startswith("Error"):
+                            docs.append((txt, f["name"], {}))
+                            prog["downloaded"] += 1
+                            log.info("OK (%d/%d): %s — %d chars extraidos",
+                                     prog["downloaded"], prog["total"], f["name"], len(txt))
+                        else:
+                            log.warning("Sin texto extraible: %s", f["name"])
+                    else:
+                        log.warning("Descarga vacia: %s", f["name"])
+                except concurrent.futures.TimeoutError:
+                    log.warning("TIMEOUT (30s): %s — omitido", f["name"])
+                except Exception as e:
+                    log.warning("ERROR descargando %s: %s", f["name"], e)
+
+        log.info("Descarga completada: %d/%d archivos con texto valido", len(docs), len(files_to_index))
+
+        if docs:
+            log.info("Enviando %d documento(s) a ChromaDB (esto puede tardar)...", len(docs))
+            chatbot.vector_ingest_multiple(docs)
+            prog["indexed"] = len(docs)
+            log.info("ChromaDB actualizado. Total indexado en esta sesion: %d contrato(s).", len(docs))
+
+        prog["status"] = "complete"
+        log.info("Indexacion finalizada exitosamente.")
+    except Exception as e:
+        prog["status"] = "error"
+        prog["error"] = str(e)[:120]
+        log.error("Error fatal en indexacion: %s", e, exc_info=True)
+
+
+def _trigger_startup_index(chatbot, drive_root_id, drive_api_key):
+    """Launches one background indexation per server process."""
+    global _startup_index_triggered
+    with _startup_index_lock:
+        if _startup_index_triggered:
+            return
+        _startup_index_triggered = True
+    t = threading.Thread(
+        target=_bg_startup_index,
+        args=(chatbot, drive_root_id, drive_api_key),
+        daemon=True
+    )
+    t.start()
 
 STYLES = """
 <style>
@@ -39,7 +146,7 @@ def apply_styles():
 
 
 def api_status_banner():
-    """Muestra estado de Gemini API y Drive en la parte superior de cada pagina."""
+    """Muestra estado de Gemini API y Drive. Auto-refresca mientras indexa."""
     try:
         col1, col2 = st.columns(2)
         with col1:
@@ -48,14 +155,38 @@ def api_status_banner():
             else:
                 st.error("Gemini API no configurada — ve a Ajustes", icon="⚠️")
         with col2:
-            if "drive_root_id" in st.session_state:
-                try:
-                    n = st.session_state.chatbot.get_stats()["total_docs"]
-                except Exception:
-                    n = 0
-                st.success(f"Drive conectado — {n} contrato(s) indexado(s)", icon="✅")
-            else:
+            if "drive_root_id" not in st.session_state:
                 st.warning("Drive no conectado — ve a Ajustes", icon="⚠️")
+            else:
+                prog = _startup_index_progress
+                run_every = 4 if prog["status"] == "running" else None
+
+                @st.fragment(run_every=run_every)
+                def _drive_status():
+                    p = _startup_index_progress
+                    try:
+                        n = st.session_state.chatbot.get_stats()["total_docs"]
+                    except Exception:
+                        n = 0
+
+                    if p["status"] == "running":
+                        total = p["total"] or 1
+                        pct = p["downloaded"] / total
+                        st.info(
+                            f"Indexando contratos... {p['downloaded']}/{p['total']} descargados",
+                            icon="⏳"
+                        )
+                        st.progress(pct, text=p["last_file"][:50] if p["last_file"] else "")
+                    elif p["status"] == "error":
+                        st.warning(f"Drive conectado — {n} contrato(s). Error parcial: {p['error']}", icon="⚠️")
+                    elif n > 0:
+                        st.success(f"Drive conectado — {n} contrato(s) indexado(s)", icon="✅")
+                    else:
+                        st.info("Drive conectado — indexacion en curso...", icon="⏳")
+                        if st.button("Actualizar", key="banner_refresh"):
+                            st.rerun()
+
+                _drive_status()
     except Exception:
         pass
 
@@ -105,6 +236,32 @@ def init_session_state():
     for key, val in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = val
+
+    # Auto-load Drive credentials from secrets if not already set in session
+    if "drive_root_id" not in st.session_state:
+        try:
+            root_id = st.secrets.get("DRIVE_ROOT_FOLDER_ID", "")
+            api_key = st.secrets.get("DRIVE_API_KEY", "")
+            if root_id and api_key:
+                st.session_state.drive_root_id = root_id
+                st.session_state.drive_api_key = api_key
+                st.session_state.current_folder_id = root_id
+                st.session_state.folder_history = [(root_id, "Raiz Pactora")]
+        except Exception:
+            pass
+
+    # Auto-trigger one background indexation per server process
+    if (
+        "drive_root_id" in st.session_state
+        and st.session_state.get("drive_api_key", "") not in ("", "DEMO_KEY")
+        and st.session_state.chatbot is not None
+        and st.session_state.chatbot.embeddings is not None
+    ):
+        _trigger_startup_index(
+            st.session_state.chatbot,
+            st.session_state.drive_root_id,
+            st.session_state.drive_api_key,
+        )
 
 
 def juanmitabot_sidebar():
