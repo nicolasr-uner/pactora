@@ -338,16 +338,18 @@ def juanmitabot_sidebar():
                 st.rerun()
 
 
-def force_reindex():
-    """Resetea el flag para permitir una nueva indexacion en background (util tras cambiar credenciales)."""
+def force_reindex(chatbot=None):
+    """Resetea el flag y limpia _indexed_sources para re-indexar todos los archivos."""
     global _startup_index_triggered
     with _startup_index_lock:
         _startup_index_triggered = False
-    # Restablecer progreso
     _startup_index_progress.update({
         "status": "idle", "total": 0, "downloaded": 0,
         "indexed": 0, "last_file": "", "error": "",
     })
+    # Limpiar lista de fuentes para que el thread procese todos los archivos
+    if chatbot is not None:
+        chatbot._indexed_sources = []
 
 
 def run_drive_indexation(drive_root_id: str, drive_api_key: str):
