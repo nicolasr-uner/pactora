@@ -4,6 +4,7 @@ google-auth-httplib2
 google-auth-oauthlib
 python-docx
 PyPDF2
+pypdf
 google-generativeai
 pandas
 chromadb
