@@ -3,7 +3,7 @@ import google.generativeai as genai
 from langchain_core.embeddings import Embeddings as BaseEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from typing import List, Dict, Tuple, Optional, Any
 
@@ -67,7 +67,10 @@ class RAGChatbot:
         self.vectorstore: Any = None
 
         if self.api_key:
-            self.embeddings = _GeminiEmbeddings(self.api_key)
+            self.embeddings = GoogleGenerativeAIEmbeddings(
+                model="models/text-embedding-004",
+                google_api_key=self.api_key,
+            )
             self.llm = ChatGoogleGenerativeAI(
                 model="gemini-2.0-flash",
                 google_api_key=self.api_key,

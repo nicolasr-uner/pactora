@@ -169,7 +169,10 @@ if "drive_root_id" in st.session_state and st.session_state.get("drive_api_key",
         st.markdown("#### Re-indexar contratos")
         st.caption("Reinicia la indexacion en background (util tras cambiar credenciales).")
         if st.button("Re-indexar en background", use_container_width=True, type="primary"):
-            force_reindex()
+            from utils.shared import _get_chatbot
+            _get_chatbot.clear()  # Fuerza recrear chatbot con nuevo modelo de embeddings
+            st.session_state.chatbot = _get_chatbot(st.session_state.gemini_api_key)
+            force_reindex(st.session_state.chatbot)
             _trigger_startup_index(
                 st.session_state.chatbot,
                 st.session_state.drive_root_id,
