@@ -1,10 +1,11 @@
 import streamlit as st
-from utils.shared import apply_styles, page_header, init_session_state
+from utils.shared import apply_styles, page_header, init_session_state, api_status_banner
 
 apply_styles()
 init_session_state()
 
 page_header()
+api_status_banner()
 st.header("Biblioteca de Plantillas")
 
 plantillas = [

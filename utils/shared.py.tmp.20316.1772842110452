@@ -38,22 +38,6 @@ def apply_styles():
     st.markdown(STYLES, unsafe_allow_html=True)
 
 
-def api_status_banner():
-    """Muestra estado de Gemini API y Drive en la parte superior de cada pagina."""
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.session_state.get("gemini_api_key"):
-            st.success("Gemini API activa", icon="✅")
-        else:
-            st.error("Gemini API no configurada — ve a Ajustes", icon="⚠️")
-    with col2:
-        if "drive_root_id" in st.session_state:
-            n = st.session_state.chatbot.get_stats()["total_docs"]
-            st.success(f"Drive conectado — {n} contrato(s) indexado(s)", icon="✅")
-        else:
-            st.warning("Drive no conectado — ve a Ajustes", icon="⚠️")
-
-
 def page_header(subtitle="by Unergy"):
     st.markdown(
         '<div style="font-family:Lato,sans-serif;font-weight:900;font-size:46px;'
@@ -93,18 +77,6 @@ def init_session_state():
 def juanmitabot_sidebar():
     """Chat lateral de JuanMitaBot mostrado en la barra lateral."""
     with st.sidebar:
-        # User info si hay sesion activa
-        try:
-            if st.user.is_logged_in:
-                st.markdown(
-                    f'<div style="font-size:12px;color:#F6FF72;margin-bottom:4px;">'
-                    f'👤 {st.user.name}<br>'
-                    f'<span style="opacity:0.7">{st.user.email}</span></div>',
-                    unsafe_allow_html=True
-                )
-                st.button("Cerrar sesion", on_click=st.logout, key="sidebar_logout")
-        except Exception:
-            pass
         st.markdown("---")
         st.markdown(
             '<div style="font-weight:900;font-size:15px;color:#F6FF72;">🤖 JuanMitaBot</div>',

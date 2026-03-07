@@ -1,10 +1,11 @@
 import streamlit as st
-from utils.shared import apply_styles, page_header, init_session_state, juanmitabot_sidebar
+from utils.shared import apply_styles, page_header, init_session_state, juanmitabot_sidebar, api_status_banner
 
 apply_styles()
 init_session_state()
 
 page_header()
+api_status_banner()
 
 # Barra de busqueda global
 search_query = st.text_input(
@@ -55,7 +56,9 @@ with c1:
         for item in items[:20]:
             is_folder = item["mimeType"] == "application/vnd.google-apps.folder"
             icon = "📁" if is_folder else "📄"
-            row = st.columns([1, 7, 1])
+            is_indexed = (not is_folder) and (item["name"] in st.session_state.chatbot._indexed_sources)
+
+            row = st.columns([1, 6, 1, 1])
             row[0].write(icon)
 
             if row[1].button(item["name"], key=f"f_{item['id']}", use_container_width=True):
@@ -64,8 +67,15 @@ with c1:
                     st.session_state.folder_history.append((item["id"], item["name"]))
                     st.rerun()
 
+            # Boton de previsualizacion (solo archivos)
+            if not is_folder:
+                preview_key = f"prev_{item['id']}"
+                if row[2].button("👁", key=preview_key, help="Previsualizar contrato"):
+                    toggle_key = f"show_preview_{item['id']}"
+                    st.session_state[toggle_key] = not st.session_state.get(toggle_key, False)
+
             help_txt = "Analizar con JuanMitaBot" if is_folder else "Preguntar a JuanMitaBot sobre este archivo"
-            if row[2].button("🤖", key=f"ia_{item['id']}", help=help_txt):
+            if row[3].button("🤖", key=f"ia_{item['id']}", help=help_txt):
                 # Para archivos: indexar si no esta indexado aun (con timeout de 25s)
                 if not is_folder and not is_demo:
                     chatbot = st.session_state.chatbot
@@ -91,6 +101,42 @@ with c1:
                     None if is_folder else {"source": item["name"]}
                 )
                 st.rerun()
+
+            # Vista previa inline si el toggle esta activo
+            if not is_folder and st.session_state.get(f"show_preview_{item['id']}", False):
+                with st.expander(f"Vista previa: {item['name']}", expanded=True):
+                    if is_indexed:
+                        try:
+                            all_docs = st.session_state.chatbot.vectorstore.get(
+                                include=["documents", "metadatas"]
+                            )
+                            docs = all_docs.get("documents", [])
+                            metas = all_docs.get("metadatas", [])
+                            chunks = [
+                                d for d, m in zip(docs, metas)
+                                if m and m.get("source") == item["name"]
+                            ]
+                            preview_text = "\n\n".join(chunks[:2]) if chunks else "(sin texto disponible)"
+                            st.text(preview_text[:800] + ("..." if len(preview_text) > 800 else ""))
+                        except Exception:
+                            st.caption("No se pudo cargar la vista previa.")
+                    elif not is_demo:
+                        with st.spinner(f"Descargando {item['name']}..."):
+                            try:
+                                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+                                    future = ex.submit(download_file_to_io, item["id"], drive_api_key)
+                                    fio = future.result(timeout=25)
+                                if fio:
+                                    txt = extract_text_from_file(fio, item["name"])
+                                    st.text(txt[:800] + ("..." if len(txt) > 800 else ""))
+                                else:
+                                    st.caption("No se pudo descargar el archivo.")
+                            except concurrent.futures.TimeoutError:
+                                st.caption("Timeout al descargar.")
+                            except Exception as e:
+                                st.caption(f"Error: {e}")
+                    else:
+                        st.caption("Vista previa no disponible en modo demo.")
 
     st.markdown("</div>", unsafe_allow_html=True)
 
