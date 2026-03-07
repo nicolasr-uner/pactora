@@ -40,18 +40,24 @@ def apply_styles():
 
 def api_status_banner():
     """Muestra estado de Gemini API y Drive en la parte superior de cada pagina."""
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.session_state.get("gemini_api_key"):
-            st.success("Gemini API activa", icon="✅")
-        else:
-            st.error("Gemini API no configurada — ve a Ajustes", icon="⚠️")
-    with col2:
-        if "drive_root_id" in st.session_state:
-            n = st.session_state.chatbot.get_stats()["total_docs"]
-            st.success(f"Drive conectado — {n} contrato(s) indexado(s)", icon="✅")
-        else:
-            st.warning("Drive no conectado — ve a Ajustes", icon="⚠️")
+    try:
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.session_state.get("gemini_api_key"):
+                st.success("Gemini API activa", icon="✅")
+            else:
+                st.error("Gemini API no configurada — ve a Ajustes", icon="⚠️")
+        with col2:
+            if "drive_root_id" in st.session_state:
+                try:
+                    n = st.session_state.chatbot.get_stats()["total_docs"]
+                except Exception:
+                    n = 0
+                st.success(f"Drive conectado — {n} contrato(s) indexado(s)", icon="✅")
+            else:
+                st.warning("Drive no conectado — ve a Ajustes", icon="⚠️")
+    except Exception:
+        pass
 
 
 def page_header(subtitle="by Unergy"):
@@ -67,7 +73,10 @@ def page_header(subtitle="by Unergy"):
 def _get_chatbot(api_key: str):
     """Crea RAGChatbot una sola vez por proceso de servidor (cache compartido entre sesiones)."""
     from core.rag_chatbot import RAGChatbot
-    return RAGChatbot(api_key=api_key)
+    try:
+        return RAGChatbot(api_key=api_key)
+    except Exception:
+        return RAGChatbot(api_key=None)
 
 
 def init_session_state():
@@ -77,8 +86,11 @@ def init_session_state():
         except Exception:
             st.session_state.gemini_api_key = ""
 
-    # Usa cache_resource para no re-crear el chatbot en cada rerun
-    st.session_state.chatbot = _get_chatbot(st.session_state.gemini_api_key)
+    try:
+        st.session_state.chatbot = _get_chatbot(st.session_state.gemini_api_key)
+    except Exception:
+        from core.rag_chatbot import RAGChatbot
+        st.session_state.chatbot = RAGChatbot(api_key=None)
 
     defaults = {
         "current_folder_id": "",
