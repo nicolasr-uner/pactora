@@ -34,14 +34,18 @@ class _GeminiEmbeddings(BaseEmbeddings):
         genai.configure(api_key=api_key)
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        if not texts:
+            return []
+        # Batch up to 100 texts per API call (Gemini limit)
+        BATCH = 100
         result = []
-        for text in texts:
+        for i in range(0, len(texts), BATCH):
             r = genai.embed_content(
                 model=self._model,
-                content=text,
+                content=texts[i : i + BATCH],
                 task_type="retrieval_document"
             )
-            result.append(r["embedding"])
+            result.extend(r["embedding"])
         return result
 
     def embed_query(self, text: str) -> List[float]:

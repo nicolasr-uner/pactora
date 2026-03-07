@@ -130,25 +130,29 @@ def run_drive_indexation(drive_root_id: str, drive_api_key: str):
 
         docs = []
         skipped = []
-        for f in all_files:
-            if f["name"] in st.session_state.chatbot._indexed_sources:
-                continue
-            try:
-                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-                    future = ex.submit(_download, f["id"])
-                    fio = future.result(timeout=25)
-                if fio:
-                    txt = extract_text_from_file(fio, f["name"])
-                    if txt and not txt.startswith("Error"):
-                        docs.append((txt, f["name"], {}))
+        files_to_index = [
+            f for f in all_files
+            if f["name"] not in st.session_state.chatbot._indexed_sources
+        ]
+
+        # Download up to 4 files in parallel, 30s timeout per file
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
+            future_to_file = {ex.submit(_download, f["id"]): f for f in files_to_index}
+            for future, f in future_to_file.items():
+                try:
+                    fio = future.result(timeout=30)
+                    if fio:
+                        txt = extract_text_from_file(fio, f["name"])
+                        if txt and not txt.startswith("Error"):
+                            docs.append((txt, f["name"], {}))
+                        else:
+                            skipped.append(f["name"])
                     else:
                         skipped.append(f["name"])
-                else:
+                except concurrent.futures.TimeoutError:
+                    skipped.append(f["name"] + " (timeout)")
+                except Exception:
                     skipped.append(f["name"])
-            except concurrent.futures.TimeoutError:
-                skipped.append(f["name"] + " (timeout)")
-            except Exception:
-                skipped.append(f["name"])
 
         if not docs:
             msg = "No se pudo descargar ningun archivo nuevo."
