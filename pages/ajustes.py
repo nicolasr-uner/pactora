@@ -1,19 +1,24 @@
 import streamlit as st
-from utils.shared import (
-    apply_styles, page_header, init_session_state,
-    api_status_banner, force_reindex, _trigger_startup_index,
-)
+from utils.shared import apply_styles, page_header, init_session_state, api_status_banner
 
 apply_styles()
 init_session_state()
-
 page_header()
 api_status_banner()
-st.header("Configuracion")
-st.markdown("---")
 
-# ─── Carga manual de contratos ────────────────────────────────────────────────
-st.markdown("### Cargar contratos")
+st.markdown("## Ajustes")
+st.caption("Configura tu workspace: carga contratos, gestiona el índice y conecta integraciones externas.")
+
+# ─── Sección 1: Cargar contratos ──────────────────────────────────────────────
+sec1_hrow = st.columns([9, 1])
+sec1_hrow[0].markdown("### 📂 Cargar Contratos")
+with sec1_hrow[1].popover("ℹ️"):
+    st.markdown(
+        "Sube tus contratos en formato **PDF** o **DOCX** para indexarlos localmente. "
+        "También puedes subir un **ZIP** con múltiples archivos.\\n\\n"
+        "Los archivos se procesan localmente — no se envían a ningún servidor externo."
+    )
+
 st.caption("Sube PDFs o DOCXs desde tu computador. Para una carpeta completa: comprímela en ZIP.")
 
 uploaded_files = st.file_uploader(
@@ -55,7 +60,7 @@ if uploaded_files:
         if len(new_files) > 10:
             st.write(f"  … y {len(new_files) - 10} más")
 
-        if st.button("Indexar archivos cargados", type="primary", use_container_width=True):
+        if st.button("📥 Indexar archivos cargados", type="primary", use_container_width=True):
             from utils.file_parser import extract_text_from_file
 
             docs = []
@@ -78,11 +83,11 @@ if uploaded_files:
                 status.text("Indexando en ChromaDB...")
                 ok, msg = st.session_state.chatbot.vector_ingest_multiple(docs)
                 if ok:
-                    stats = st.session_state.chatbot.get_stats()
+                    stats_result = st.session_state.chatbot.get_stats()
                     status.empty()
                     st.success(
-                        f"Indexados: {len(docs)} archivo(s). "
-                        f"Total en bot: **{stats['total_docs']} contrato(s)**"
+                        f"✅ Indexados: {len(docs)} archivo(s). "
+                        f"Total en JuanMitaChat: **{stats_result['total_docs']} contrato(s)**"
                     )
                 else:
                     status.empty()
@@ -98,15 +103,28 @@ if uploaded_files:
     else:
         st.info("Todos los archivos seleccionados ya están indexados.")
 
-# ─── Contratos indexados actualmente ──────────────────────────────────────────
+# ─── Sección 2: Contratos indexados ───────────────────────────────────────────
 st.markdown("---")
+sec2_hrow = st.columns([9, 1])
+sec2_hrow[0].markdown("### 📋 Contratos Indexados")
+with sec2_hrow[1].popover("ℹ️"):
+    st.markdown(
+        "Lista de todos los contratos actualmente en el índice local (ChromaDB). "
+        "Puedes limpiar el índice completo si necesitas empezar de cero.\\n\\n"
+        "⚠️ Limpiar el índice eliminará todos los contratos y no se puede deshacer."
+    )
+
 stats = st.session_state.chatbot.get_stats()
+
 if stats["total_docs"] > 0:
-    with st.expander(f"Contratos en JuanMitaBot ({stats['total_docs']})"):
+    st.success(f"**{stats['total_docs']} contrato(s)** indexados y listos para búsqueda.")
+    with st.expander(f"Ver contratos ({len(stats['sources'])})"):
         for src in stats["sources"]:
-            st.write(f"• {src}")
+            ext = src.lower().split(".")[-1] if "." in src else ""
+            icon = "📄" if ext == "pdf" else "📝" if ext == "docx" else "📁"
+            st.write(f"{icon} {src}")
         st.markdown("---")
-        if st.button("Limpiar todos los contratos indexados", type="secondary"):
+        if st.button("🗑 Limpiar todos los contratos indexados", type="secondary"):
             import shutil, os
             chroma_dir = "./chroma_db"
             if os.path.exists(chroma_dir):
@@ -116,51 +134,109 @@ if stats["total_docs"] > 0:
             st.session_state.chatbot = _get_chatbot()
             st.success("ChromaDB limpiado. Vuelve a cargar los contratos.")
             st.rerun()
+else:
+    st.info("No hay contratos indexados aún. Carga archivos en la sección de arriba.")
 
-# ─── Google Drive (configuracion futura) ──────────────────────────────────────
+# ─── Sección 3: Google Drive (Próximamente) ────────────────────────────────────
 st.markdown("---")
-with st.expander("Conexion Google Drive (opcional — para indexacion automatica)"):
-    st.caption("Conecta tu Drive para indexar contratos automaticamente. Requiere API Keys.")
-    folder_id_input = st.text_input(
-        "ID carpeta raiz de Drive",
-        value=st.session_state.get("drive_root_id", ""),
-        placeholder="Pega el ID de la carpeta de Drive...",
+sec3_hrow = st.columns([9, 1])
+sec3_hrow[0].markdown("### ☁️ Google Drive  `Próximamente`")
+with sec3_hrow[1].popover("ℹ️"):
+    st.markdown(
+        "Conecta una carpeta de Google Drive para indexar contratos automáticamente "
+        "cada vez que se agreguen nuevos archivos.\\n\\n"
+        "Requiere configurar una cuenta de servicio de Google Cloud con permisos de lectura. "
+        "**Esta funcionalidad estará disponible en una próxima versión.**"
     )
-    drive_key_input = st.text_input(
-        "Drive API Key",
-        value="",
-        type="password",
-        placeholder="API Key de Google Drive...",
-    )
-    if st.button("Guardar configuracion Drive"):
-        if folder_id_input:
-            st.session_state.drive_root_id = folder_id_input
-            if drive_key_input:
-                st.session_state.drive_api_key = drive_key_input
-            st.session_state.current_folder_id = folder_id_input
-            st.session_state.folder_history = [(folder_id_input, "Raiz Pactora")]
-            st.success("Configuracion guardada.")
-            st.rerun()
-        else:
-            st.error("Ingresa el ID de carpeta.")
-    if "drive_root_id" in st.session_state:
-        st.caption(f"Conectado: {st.session_state.drive_root_id}")
-        if st.button("Re-indexar desde Drive", type="primary"):
-            from utils.shared import _get_chatbot
-            _get_chatbot.clear()
-            st.session_state.chatbot = _get_chatbot()
-            force_reindex(st.session_state.chatbot)
-            _trigger_startup_index(
-                st.session_state.chatbot,
-                st.session_state.drive_root_id,
-                st.session_state.get("drive_api_key", ""),
-            )
-            st.success("Indexacion reiniciada en background.")
-            st.rerun()
 
-# ─── Cerrar sesion ────────────────────────────────────────────────────────────
-st.markdown("<br>", unsafe_allow_html=True)
-if st.button("Cerrar sesion Pactora"):
-    for key in list(st.session_state.keys()):
-        del st.session_state[key]
-    st.rerun()
+with st.container():
+    st.markdown(
+        '<div style="background:#f5f5f5;border:1px dashed #ccc;border-radius:10px;'
+        'padding:20px;opacity:0.6;pointer-events:none;">',
+        unsafe_allow_html=True
+    )
+    col_drive, col_info = st.columns([3, 1])
+    with col_drive:
+        st.text_input(
+            "ID carpeta raíz de Drive",
+            placeholder="Ej: 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs...",
+            disabled=True,
+            key="drive_folder_disabled"
+        )
+    with col_info:
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.button("Conectar Drive", disabled=True, use_container_width=True)
+    st.caption("🔒 Requiere cuenta de servicio Google Cloud con acceso a la carpeta compartida.")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown(
+        '<div style="margin-top:8px;padding:8px 12px;background:#fff3e0;border-radius:6px;'
+        'border-left:3px solid #FF9800;font-size:13px;">'
+        '🔮 <b>Próximamente:</b> indexación automática desde Google Drive. '
+        'Los contratos se sincronizarán al detectar archivos nuevos.'
+        '</div>',
+        unsafe_allow_html=True
+    )
+
+# ─── Sección 4: Gemini API (Próximamente) ─────────────────────────────────────
+st.markdown("---")
+sec4_hrow = st.columns([9, 1])
+sec4_hrow[0].markdown("### 🤖 Gemini API  `Próximamente`")
+with sec4_hrow[1].popover("ℹ️"):
+    st.markdown(
+        "Conecta la API de Gemini (Google AI) para habilitar:\\n\\n"
+        "- Respuestas generadas por IA en JuanMitaChat\\n"
+        "- Extracción semántica de fechas en el Calendario\\n"
+        "- Análisis de riesgo inteligente en Métricas\\n"
+        "- Comparación avanzada de contratos en Análisis Legal\\n\\n"
+        "**Esta funcionalidad estará disponible en una próxima versión.**"
+    )
+
+with st.container():
+    st.markdown(
+        '<div style="background:#f5f5f5;border:1px dashed #ccc;border-radius:10px;'
+        'padding:20px;opacity:0.6;pointer-events:none;">',
+        unsafe_allow_html=True
+    )
+    col_gem1, col_gem2 = st.columns([3, 1])
+    with col_gem1:
+        st.text_input(
+            "Gemini API Key",
+            placeholder="AIza...",
+            type="password",
+            disabled=True,
+            key="gemini_key_disabled"
+        )
+    with col_gem2:
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.button("Activar IA", disabled=True, use_container_width=True)
+    st.caption("Obtén tu API Key en Google AI Studio (aistudio.google.com). Plan gratuito disponible.")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown(
+        '<div style="margin-top:8px;padding:8px 12px;background:#f3e5f5;border-radius:6px;'
+        'border-left:3px solid #9C27B0;font-size:13px;">'
+        '🔮 <b>Próximamente:</b> análisis semántico con IA para mayor precisión en '
+        'extracción de cláusulas, fechas y análisis de riesgo.'
+        '</div>',
+        unsafe_allow_html=True
+    )
+
+# ─── Sección 5: Cerrar sesión ──────────────────────────────────────────────────
+st.markdown("---")
+sec5_hrow = st.columns([9, 1])
+sec5_hrow[0].markdown("### ⚙️ Sesión")
+with sec5_hrow[1].popover("ℹ️"):
+    st.markdown(
+        "Limpia todos los datos de la sesión actual (contratos cargados, historial de búsqueda, eventos). "
+        "El índice de ChromaDB **no se borra** con esta acción — solo el estado de la sesión."
+    )
+
+col_ses1, col_ses2 = st.columns([3, 1])
+with col_ses1:
+    st.caption("Reinicia la sesión de Pactora. El índice local de contratos se mantiene.")
+with col_ses2:
+    if st.button("Cerrar sesión", use_container_width=True):
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        st.rerun()

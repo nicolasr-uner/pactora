@@ -1,217 +1,267 @@
 import streamlit as st
-import threading
-from utils.shared import apply_styles, page_header, init_session_state, juanmitabot_sidebar, api_status_banner
+import datetime
+import calendar
+from utils.shared import apply_styles, page_header, init_session_state, api_status_banner
 
 apply_styles()
 init_session_state()
-
 page_header()
 api_status_banner()
 
-# ─── Indexacion en segundo plano ─────────────────────────────────────────────
-# Modulo-level dict compartido entre sesiones (mismo proceso del servidor)
-if "_bg_index_status" not in st.session_state:
-    st.session_state._bg_index_status = {}
+
+def _mini_calendar(year, month, event_days):
+    """Renderiza calendario mensual en HTML."""
+    MONTH_NAMES = ["", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+                   "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+    TIPO_COLOR = {
+        "inicio": "#4CAF50", "vencimiento": "#e53935", "renovacion": "#FF9800",
+        "pago": "#2196F3", "hito": "#9C27B0"
+    }
+    today = datetime.date.today()
+    cal_matrix = calendar.monthcalendar(year, month)
+
+    html = (
+        '<div style="background:white;border-radius:12px;padding:16px;'
+        'box-shadow:0 2px 12px rgba(145,91,216,0.08);">'
+        f'<div style="text-align:center;font-weight:900;color:#2C2039;'
+        f'margin-bottom:10px;font-size:14px;">{MONTH_NAMES[month]} {year}</div>'
+        '<table style="width:100%;border-collapse:collapse;font-size:12px;">'
+        '<tr>'
+    )
+    for d in ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]:
+        html += f'<th style="text-align:center;color:#915BD8;padding:3px;font-weight:700;">{d}</th>'
+    html += "</tr>"
+
+    for week in cal_matrix:
+        html += "<tr>"
+        for day in week:
+            if day == 0:
+                html += '<td style="padding:4px;"></td>'
+            elif day == today.day and year == today.year and month == today.month:
+                html += (
+                    f'<td style="text-align:center;padding:4px;">'
+                    f'<div style="background:#915BD8;color:white;border-radius:50%;'
+                    f'width:24px;height:24px;display:inline-flex;align-items:center;'
+                    f'justify-content:center;font-weight:900;font-size:11px;">{day}</div></td>'
+                )
+            elif day in event_days:
+                color = TIPO_COLOR.get(event_days[day], "#915BD8")
+                html += (
+                    f'<td style="text-align:center;padding:4px;">'
+                    f'<div style="background:{color};color:white;border-radius:50%;'
+                    f'width:24px;height:24px;display:inline-flex;align-items:center;'
+                    f'justify-content:center;font-size:11px;">{day}</div></td>'
+                )
+            else:
+                html += f'<td style="text-align:center;padding:4px;color:#444;">{day}</td>'
+        html += "</tr>"
+    html += "</table>"
+    if event_days:
+        html += f'<div style="font-size:11px;color:#666;margin-top:6px;text-align:center;">{len(event_days)} evento(s) este mes</div>'
+    html += "</div>"
+    return html
 
 
-def _bg_index_folder(folder_id, api_key, chatbot, status_ref):
-    """Corre en hilo de fondo: descarga e indexa archivos de la carpeta."""
-    try:
-        from utils.drive_manager import get_folder_contents, download_file_to_io
-        from utils.file_parser import extract_text_from_file
-        import concurrent.futures
+# ─── Layout principal ──────────────────────────────────────────────────────────
+col_explorer, col_right = st.columns([3, 2])
 
-        items = get_folder_contents(folder_id, api_key=api_key)
-        files = [
-            i for i in items
-            if i["mimeType"] != "application/vnd.google-apps.folder"
-            and i["name"] not in chatbot._indexed_sources
-        ]
-        if not files:
-            status_ref[folder_id] = "done:0"
-            return
-
-        docs = []
-        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
-            futures = {ex.submit(download_file_to_io, f["id"], api_key): f for f in files}
-            for future, f in futures.items():
-                try:
-                    fio = future.result(timeout=30)
-                    if fio:
-                        txt = extract_text_from_file(fio, f["name"])
-                        if txt and not txt.startswith("Error"):
-                            docs.append((txt, f["name"], {}))
-                except Exception:
-                    pass
-
-        if docs:
-            chatbot.vector_ingest_multiple(docs)
-        status_ref[folder_id] = f"done:{len(docs)}"
-    except Exception as e:
-        status_ref[folder_id] = f"error:{str(e)[:80]}"
-
-
-def _trigger_bg_index(folder_id, api_key, chatbot):
-    """Lanza indexacion en segundo plano si no esta ya corriendo."""
-    status = st.session_state._bg_index_status
-    if status.get(folder_id) in (None,) and api_key and api_key != "DEMO_KEY":
-        status[folder_id] = "running"
-        t = threading.Thread(
-            target=_bg_index_folder,
-            args=(folder_id, api_key, chatbot, status),
-            daemon=True
+# ─── Explorador de Archivos ───────────────────────────────────────────────────
+with col_explorer:
+    hrow = st.columns([9, 1])
+    hrow[0].markdown('<div class="card-title">Explorador de Archivos</div>', unsafe_allow_html=True)
+    with hrow[1].popover("ℹ️"):
+        st.markdown(
+            "Lista los contratos cargados en el sistema. "
+            "Haz clic en el nombre para ver una previsualización del texto. "
+            "El icono **✓** indica que el contrato está disponible para búsqueda en JuanMitaChat."
         )
-        t.start()
-
-
-# ─── Barra de busqueda global ─────────────────────────────────────────────────
-search_query = st.text_input(
-    "buscar",
-    placeholder="Buscar en contratos indexados... Ej: clausulas de terminacion, fecha de vencimiento",
-    label_visibility="collapsed"
-)
-if search_query:
-    with st.spinner("JuanMitaBot consultando contratos..."):
-        ans = st.session_state.chatbot.ask_question(search_query)
-    st.info(f"**JuanMitaBot:**\n\n{ans}")
-
-c1, c2 = st.columns(2)
-
-# ─── Explorador de Archivos ──────────────────────────────────────────────────
-with c1:
-    st.markdown('<div class="factora-card"><div class="card-title">Explorador de Archivos</div>', unsafe_allow_html=True)
-
-    if "drive_root_id" not in st.session_state:
-        st.info("Conecta tu Google Drive en Ajustes para explorar archivos.")
-    else:
-        from utils.drive_manager import get_folder_contents, download_file_to_io
-        from utils.file_parser import extract_text_from_file
-        import concurrent.futures
-
-        drive_api_key = st.session_state.get("drive_api_key", "")
-        is_demo = drive_api_key == "DEMO_KEY"
-        current_folder = st.session_state.current_folder_id
-
-        # Auto-indexar carpeta actual en segundo plano
-        if not is_demo:
-            _trigger_bg_index(current_folder, drive_api_key, st.session_state.chatbot)
-
-        # Estado de indexacion de fondo
-        bg_status = st.session_state._bg_index_status.get(current_folder)
-        if bg_status == "running":
-            st.caption("⏳ Indexando archivos de esta carpeta en segundo plano...")
-        elif bg_status and bg_status.startswith("done:"):
-            n = bg_status.split(":")[1]
-            if n != "0":
-                st.caption(f"✅ {n} archivo(s) indexado(s) en esta carpeta.")
-
-        # Breadcrumb
-        history = st.session_state.folder_history
-        if history:
-            breadcrumb = " > ".join(name for _, name in history)
-            st.caption(f"📍 {breadcrumb}")
-        if len(history) > 1:
-            if st.button("← Volver", key="back_btn", type="secondary"):
-                history.pop()
-                st.session_state.current_folder_id = history[-1][0]
-                st.rerun()
-
-        if is_demo and "mock_items" in st.session_state:
-            items = st.session_state.mock_items
-        else:
-            items = get_folder_contents(current_folder, api_key=drive_api_key)
-
-        for item in items[:20]:
-            is_folder = item["mimeType"] == "application/vnd.google-apps.folder"
-            icon = "📁" if is_folder else "📄"
-            is_indexed = (not is_folder) and (item["name"] in st.session_state.chatbot._indexed_sources)
-
-            row = st.columns([1, 6, 1, 1])
-            row[0].write(icon + (" ✓" if is_indexed else ""))
-
-            if row[1].button(item["name"], key=f"f_{item['id']}", use_container_width=True):
-                if is_folder:
-                    st.session_state.current_folder_id = item["id"]
-                    st.session_state.folder_history.append((item["id"], item["name"]))
-                    st.rerun()
-
-            if not is_folder:
-                if row[2].button("👁", key=f"prev_{item['id']}", help="Previsualizar"):
-                    toggle_key = f"show_preview_{item['id']}"
-                    st.session_state[toggle_key] = not st.session_state.get(toggle_key, False)
-
-            help_txt = "Analizar con JuanMitaBot" if is_folder else "Preguntar a JuanMitaBot"
-            if row[3].button("🤖", key=f"ia_{item['id']}", help=help_txt):
-                if not is_folder and not is_demo and not is_indexed:
-                    with st.spinner(f"Indexando {item['name']}..."):
-                        try:
-                            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-                                fio = ex.submit(download_file_to_io, item["id"], drive_api_key).result(timeout=25)
-                            if fio:
-                                txt = extract_text_from_file(fio, item["name"])
-                                if txt and not txt.startswith("Error"):
-                                    st.session_state.chatbot.vector_ingest(txt, filename=item["name"])
-                        except Exception:
-                            pass
-                st.session_state.sidebar_chat_title = item["name"]
-                st.session_state.sidebar_chat_history = []
-                st.session_state.sidebar_chat_filter = None if is_folder else {"source": item["name"]}
-                st.rerun()
-
-            # Vista previa inline usando visor nativo de Drive
-            if not is_folder and st.session_state.get(f"show_preview_{item['id']}", False):
-                with st.expander(f"Vista previa: {item['name']}", expanded=True):
-                    if not is_demo:
-                        # Iframe con el visor de Drive (funciona para archivos compartidos)
-                        embed_url = f"https://drive.google.com/file/d/{item['id']}/preview"
-                        st.components.v1.iframe(embed_url, height=520, scrolling=True)
-                        # Texto indexado adicional si esta en RAG
-                        if is_indexed:
-                            try:
-                                all_docs = st.session_state.chatbot.vectorstore.get(
-                                    include=["documents", "metadatas"]
-                                )
-                                chunks = [
-                                    d for d, m in zip(all_docs.get("documents", []), all_docs.get("metadatas", []))
-                                    if m and m.get("source") == item["name"]
-                                ]
-                                if chunks:
-                                    with st.expander("Texto en JuanMitaBot"):
-                                        st.text("\n\n".join(chunks[:2])[:1000])
-                            except Exception:
-                                pass
-                    else:
-                        st.caption("Vista previa no disponible en modo demo.")
-
-    st.markdown("</div>", unsafe_allow_html=True)
-
-# ─── Estado del Workspace ────────────────────────────────────────────────────
-with c2:
-    st.markdown('<div class="factora-card"><div class="card-title">Estado del Workspace</div>', unsafe_allow_html=True)
 
     stats = st.session_state.chatbot.get_stats()
-    m1, m2 = st.columns(2)
-    m1.markdown(
-        f'<div class="metric-card"><div class="metric-val">{stats["total_docs"]}</div>'
-        '<div class="metric-lbl">Contratos indexados</div></div>',
-        unsafe_allow_html=True
-    )
-    m2.markdown(
-        f'<div class="metric-card"><div class="metric-val">{stats["total_chunks"]}</div>'
-        '<div class="metric-lbl">Fragmentos en RAG</div></div>',
-        unsafe_allow_html=True
-    )
+    sources = stats.get("sources", [])
 
-    if stats["sources"]:
-        st.caption("Contratos disponibles para JuanMitaBot:")
-        for s in stats["sources"][:10]:
-            st.markdown(f"- {s}")
+    if not sources:
+        st.info("Aún no hay contratos cargados. Ve a **Ajustes** para subir documentos.")
+        st.markdown("**Vista de ejemplo:**")
+        mock = [
+            ("📄", "PPA_Empresa_Solar.pdf"),
+            ("📝", "EPC_Construccion_2024.docx"),
+            ("📄", "Contrato_OyM_Unergy.pdf"),
+            ("📝", "NDA_Confidencialidad.docx"),
+        ]
+        for icon, name in mock:
+            st.markdown(
+                f'<div style="padding:6px 10px;border:1px dashed #ccc;border-radius:8px;'
+                f'margin-bottom:6px;color:#aaa;font-size:13px;">{icon} {name} <i>(demo)</i></div>',
+                unsafe_allow_html=True
+            )
     else:
-        if "drive_root_id" in st.session_state:
-            st.info("Abre una carpeta del Drive para que JuanMitaBot indexe los contratos automaticamente.")
-        else:
-            st.caption("Conecta Google Drive en Ajustes para que JuanMitaBot pueda leer los contratos.")
+        search = st.text_input(
+            "buscar_explorer", placeholder="🔍 Filtrar por nombre...",
+            label_visibility="collapsed", key="explorer_search"
+        )
+        filtered = [s for s in sources if search.lower() in s.lower()] if search else sources
+        st.caption(f"{len(filtered)} archivo(s) indexado(s)")
 
-    st.markdown("</div>", unsafe_allow_html=True)
+        for src in filtered[:25]:
+            ext = src.lower().split(".")[-1] if "." in src else ""
+            icon = "📄" if ext == "pdf" else "📝"
+            prev_key = f"inicio_prev_{src}"
 
-juanmitabot_sidebar()
+            row = st.columns([1, 8, 1])
+            row[0].markdown(f"{icon} ✓")
+            if row[1].button(src, key=f"file_btn_{src}", use_container_width=True):
+                st.session_state[prev_key] = not st.session_state.get(prev_key, False)
+                st.rerun()
+
+            with row[2].popover("👁"):
+                try:
+                    all_docs = st.session_state.chatbot.vectorstore.get(
+                        include=["documents", "metadatas"]
+                    )
+                    chunks = [
+                        d for d, m in zip(
+                            all_docs.get("documents", []),
+                            all_docs.get("metadatas", [])
+                        )
+                        if m and m.get("source") == src
+                    ]
+                    if chunks:
+                        st.markdown(f"**{src}**")
+                        st.text(chunks[0][:500] + "…")
+                    else:
+                        st.caption("Sin texto disponible.")
+                except Exception:
+                    st.caption("Error al cargar previsualización.")
+
+            if st.session_state.get(prev_key, False):
+                with st.expander(f"📄 {src}", expanded=True):
+                    try:
+                        all_docs = st.session_state.chatbot.vectorstore.get(
+                            include=["documents", "metadatas"]
+                        )
+                        chunks = [
+                            d for d, m in zip(
+                                all_docs.get("documents", []),
+                                all_docs.get("metadatas", [])
+                            )
+                            if m and m.get("source") == src
+                        ]
+                        if chunks:
+                            st.text_area(
+                                "preview_ta", value="\n\n---\n\n".join(chunks[:3])[:2000],
+                                height=250, disabled=True, label_visibility="collapsed",
+                                key=f"ta_inicio_{src}"
+                            )
+                            st.caption(f"{len(chunks)} fragmentos indexados")
+                        else:
+                            st.caption("Sin texto previsualizable.")
+                    except Exception:
+                        st.caption("No se pudo cargar el texto.")
+
+# ─── Columna derecha: Mini Calendario + Próximos eventos ─────────────────────
+with col_right:
+    # Mini Calendario
+    hrow2 = st.columns([9, 1])
+    hrow2[0].markdown('<div class="card-title">Calendario</div>', unsafe_allow_html=True)
+    with hrow2[1].popover("ℹ️"):
+        st.markdown(
+            "Vista del mes actual. Los días marcados tienen eventos extraídos de los contratos. "
+            "Ve a **Calendario** para ver todos los eventos y extraer fechas de los documentos."
+        )
+
+    today = datetime.date.today()
+    events = st.session_state.get("contract_events", [])
+    event_days = {}
+    for e in events:
+        try:
+            d = datetime.date.fromisoformat(e.get("fecha", ""))
+            if d.year == today.year and d.month == today.month:
+                event_days[d.day] = e.get("tipo_evento", "hito")
+        except Exception:
+            pass
+
+    st.markdown(_mini_calendar(today.year, today.month, event_days), unsafe_allow_html=True)
+
+    # Leyenda
+    TIPO_COLOR = {
+        "inicio": "#4CAF50", "vencimiento": "#e53935",
+        "renovacion": "#FF9800", "pago": "#2196F3", "hito": "#9C27B0"
+    }
+    if event_days:
+        tipos_mes = set(event_days.values())
+        leyenda_html = '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;">'
+        for tipo, color in TIPO_COLOR.items():
+            if tipo in tipos_mes:
+                leyenda_html += (
+                    f'<span style="background:{color};color:white;border-radius:4px;'
+                    f'padding:2px 8px;font-size:10px;">{tipo.capitalize()}</span>'
+                )
+        leyenda_html += "</div>"
+        st.markdown(leyenda_html, unsafe_allow_html=True)
+    else:
+        st.caption("Sin eventos este mes. Ve a **Calendario** para extraer fechas.")
+
+    # Próximos eventos
+    st.markdown("<br>", unsafe_allow_html=True)
+    upcoming = []
+    for e in events:
+        try:
+            d = datetime.date.fromisoformat(e.get("fecha", ""))
+            if d >= today:
+                upcoming.append((d, e))
+        except Exception:
+            pass
+    upcoming.sort(key=lambda x: x[0])
+
+    if upcoming:
+        st.markdown('<div class="card-title" style="font-size:14px;">Próximos eventos</div>', unsafe_allow_html=True)
+        for d, e in upcoming[:4]:
+            diff = (d - today).days
+            label = "Hoy" if diff == 0 else f"en {diff}d"
+            tipo = e.get("tipo_evento", "hito")
+            color = TIPO_COLOR.get(tipo, "#915BD8")
+            st.markdown(
+                f'<div style="border-left:3px solid {color};padding:6px 10px;'
+                f'margin-bottom:6px;border-radius:0 6px 6px 0;background:white;">'
+                f'<div style="font-size:12px;font-weight:700;">'
+                f'{d.strftime("%d/%m/%Y")} <span style="color:#999;">({label})</span></div>'
+                f'<div style="font-size:11px;color:#555;">{e.get("contrato","")[:30]}</div>'
+                f'<div style="font-size:10px;color:{color};">{tipo.upper()}</div>'
+                f'</div>',
+                unsafe_allow_html=True
+            )
+
+# ─── Estado del Workspace ─────────────────────────────────────────────────────
+st.markdown("---")
+ws_row = st.columns([9, 1])
+ws_row[0].markdown('<div class="card-title">Estado del Workspace</div>', unsafe_allow_html=True)
+with ws_row[1].popover("ℹ️"):
+    st.markdown(
+        "Resumen del estado del sistema: cuántos contratos están cargados, "
+        "cuántos fragmentos están disponibles para búsqueda y cuántos eventos de calendario se han extraído."
+    )
+
+stats = st.session_state.chatbot.get_stats()
+m1, m2, m3 = st.columns(3)
+m1.markdown(
+    f'<div class="metric-card"><div class="metric-val">{stats["total_docs"]}</div>'
+    '<div class="metric-lbl">Contratos cargados</div></div>',
+    unsafe_allow_html=True
+)
+m2.markdown(
+    f'<div class="metric-card"><div class="metric-val">{stats["total_chunks"]}</div>'
+    '<div class="metric-lbl">Fragmentos indexados</div></div>',
+    unsafe_allow_html=True
+)
+m3.markdown(
+    f'<div class="metric-card"><div class="metric-val">{len(st.session_state.get("contract_events", []))}</div>'
+    '<div class="metric-lbl">Eventos de calendario</div></div>',
+    unsafe_allow_html=True
+)
+
+if stats["sources"]:
+    with st.expander(f"Ver contratos disponibles ({len(stats['sources'])})"):
+        for s in stats["sources"]:
+            st.markdown(f"✓ &nbsp; {s}")
+else:
+    st.info("Sin contratos cargados. Ve a **Ajustes** para subir documentos PDF o DOCX.")
