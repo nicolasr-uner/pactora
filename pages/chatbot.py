@@ -1,17 +1,24 @@
 import streamlit as st
-from utils.shared import apply_styles, page_header, init_session_state
+from utils.shared import apply_styles, page_header, init_session_state, api_status_banner
+from core.llm_service import LLM_AVAILABLE
 
 apply_styles()
 init_session_state()
 page_header()
+api_status_banner()
 
 # ─── Header estilo buscador ────────────────────────────────────────────────────
+modo_label = "🤖 JuanMitaBot — Modo IA" if LLM_AVAILABLE else "🤖 JuanMitaBot — Búsqueda semántica"
+modo_desc = (
+    "Respuestas generadas por Gemini sobre tus contratos"
+    if LLM_AVAILABLE else
+    "Busca fragmentos relevantes en el contenido de tus contratos indexados"
+)
 st.markdown(
-    '<div style="text-align:center;margin:8px 0 20px 0;">'
-    '<div style="font-size:32px;font-weight:900;color:#2C2039;">🤖 JuanMitaChat</div>'
-    '<div style="color:#915BD8;font-size:15px;margin-top:4px;">'
-    'Busca en el contenido de tus contratos indexados</div>'
-    '</div>',
+    f'<div style="text-align:center;margin:8px 0 20px 0;">'
+    f'<div style="font-size:32px;font-weight:900;color:#2C2039;">{modo_label}</div>'
+    f'<div style="color:#915BD8;font-size:15px;margin-top:4px;">{modo_desc}</div>'
+    f'</div>',
     unsafe_allow_html=True
 )
 
@@ -65,13 +72,19 @@ with col_btn:
     buscar = st.button("Buscar", type="primary", use_container_width=True)
 with col_info:
     with st.popover("ℹ️"):
-        st.markdown(
-            "**JuanMitaChat** busca en el texto de los contratos indexados y devuelve "
-            "los fragmentos más relevantes para tu consulta.\n\n"
-            "Escribe preguntas en lenguaje natural, términos legales o palabras clave. "
-            "No necesita ortografía perfecta.\n\n"
-            "*Próximamente: respuestas generadas por IA con Gemini.*"
-        )
+        if LLM_AVAILABLE:
+            st.markdown(
+                "**JuanMitaBot** responde tus preguntas usando Gemini, basándose en "
+                "los contratos indexados. Las respuestas citan la fuente exacta.\n\n"
+                "🟢 **Gemini activo** — modo IA completo."
+            )
+        else:
+            st.markdown(
+                "**JuanMitaBot** busca en el texto de los contratos indexados y devuelve "
+                "los fragmentos más relevantes para tu consulta.\n\n"
+                "Escribe preguntas en lenguaje natural, términos legales o palabras clave.\n\n"
+                "⚫ **Modo búsqueda semántica** — activa Gemini API para respuestas IA."
+            )
 
 # ─── Sugerencias ──────────────────────────────────────────────────────────────
 SUGERENCIAS = [

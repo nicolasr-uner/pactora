@@ -9,6 +9,20 @@ api_status_banner()
 st.markdown("## Ajustes")
 st.caption("Configura tu workspace: carga contratos, gestiona el índice y conecta integraciones externas.")
 
+# ─── Banner de seguridad — sin autenticación de usuarios ──────────────────────
+try:
+    _user_auth_active = st.user.is_logged_in
+except Exception:
+    _user_auth_active = False  # st.user no disponible en esta versión o sin auth configurada
+
+if not _user_auth_active:
+    st.warning(
+        "**⚠️ App sin autenticación de usuarios activa.** "
+        "Cualquier persona con la URL puede acceder a todos los contratos y configuraciones. "
+        "Configura Streamlit Auth en `.streamlit/secrets.toml` para proteger la aplicación en producción.",
+        icon="🔒"
+    )
+
 # ─── Sección 1: Cargar contratos ──────────────────────────────────────────────
 sec1_hrow = st.columns([9, 1])
 sec1_hrow[0].markdown("### 📂 Cargar Contratos")

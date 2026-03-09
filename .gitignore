@@ -1,5 +1,8 @@
-# Environment
-
+# Environment variables (NUNCA commitear — contienen API keys)
+.env
+.env.*
+*.env
+.env.txt
 
 # Google API Credentials (CRITICAL for Suno/Bermuda privacy)
 credentials.json

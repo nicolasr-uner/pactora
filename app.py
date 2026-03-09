@@ -16,12 +16,19 @@ if sys.version_info >= (3, 14):
         _pv1m.ModelMetaclass.__new__ = _patched_metaclass_new
 
 import streamlit as st
+from utils.shared import init_session_state, juanmitabot_sidebar
 
 st.set_page_config(
     page_title="Pactora CLM — Unergy",
     page_icon="🏛",
     layout="wide"
 )
+
+# Inicializar estado global (chatbot, session_state defaults) una sola vez por carga
+init_session_state()
+
+# Sidebar persistente con JuanMitaBot en todas las páginas
+juanmitabot_sidebar()
 
 pg = st.navigation({
     "Principal": [
