@@ -199,89 +199,108 @@ if stats["total_docs"] > 0:
 else:
     st.info("No hay contratos indexados aún. Carga archivos en la sección de arriba.")
 
-# ─── Sección 3: Google Drive (Próximamente) ────────────────────────────────────
+# ─── Sección 3: Google Drive ──────────────────────────────────────────────────
 st.markdown("---")
 sec3_hrow = st.columns([9, 1])
-sec3_hrow[0].markdown("### ☁️ Google Drive  `Próximamente`")
+sec3_hrow[0].markdown("### ☁️ Google Drive")
 with sec3_hrow[1].popover("ℹ️"):
     st.markdown(
-        "Conecta una carpeta de Google Drive para indexar contratos automáticamente "
-        "cada vez que se agreguen nuevos archivos.\\n\\n"
-        "Requiere configurar una cuenta de servicio de Google Cloud con permisos de lectura. "
-        "**Esta funcionalidad estará disponible en una próxima versión.**"
+        "Conecta una carpeta de Google Drive para indexar contratos automáticamente.\n\n"
+        "Configura `DRIVE_ROOT_FOLDER_ID`, `DRIVE_API_KEY` y `GOOGLE_SERVICE_ACCOUNT` "
+        "en **App Settings → Secrets** de Streamlit Cloud."
     )
 
-with st.container():
-    st.markdown(
-        '<div style="background:#f5f5f5;border:1px dashed #ccc;border-radius:10px;'
-        'padding:20px;opacity:0.6;pointer-events:none;">',
-        unsafe_allow_html=True
-    )
-    col_drive, col_info = st.columns([3, 1])
-    with col_drive:
-        st.text_input(
-            "ID carpeta raíz de Drive",
-            placeholder="Ej: 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs...",
-            disabled=True,
-            key="drive_folder_disabled"
-        )
-    with col_info:
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.button("Conectar Drive", disabled=True, use_container_width=True)
-    st.caption("🔒 Requiere cuenta de servicio Google Cloud con acceso a la carpeta compartida.")
-    st.markdown('</div>', unsafe_allow_html=True)
+_drive_root_id = st.session_state.get("drive_root_id", "")
+_drive_api_key = st.session_state.get("drive_api_key", "")
+_drive_configured = bool(_drive_root_id and _drive_api_key and _drive_api_key != "DEMO_KEY")
 
-    st.markdown(
-        '<div style="margin-top:8px;padding:8px 12px;background:#fff3e0;border-radius:6px;'
-        'border-left:3px solid #FF9800;font-size:13px;">'
-        '🔮 <b>Próximamente:</b> indexación automática desde Google Drive. '
-        'Los contratos se sincronizarán al detectar archivos nuevos.'
-        '</div>',
-        unsafe_allow_html=True
+if _drive_configured:
+    _stats_drive = st.session_state.chatbot.get_stats()
+    st.success(
+        f"✅ **Drive conectado** — Carpeta: `{_drive_root_id[:28]}...` · "
+        f"{_stats_drive['total_docs']} contrato(s) indexado(s)",
+        icon="☁️"
     )
 
-# ─── Sección 4: Gemini API (Próximamente) ─────────────────────────────────────
+    from utils.shared import _drive_status_widget
+    _drive_status_widget()
+
+    col_d1, col_d2 = st.columns(2)
+    with col_d1:
+        if st.button("🔍 Probar conexión", use_container_width=True, key="drive_test_btn"):
+            with st.spinner("Conectando con Drive..."):
+                try:
+                    from utils.drive_manager import get_folder_contents
+                    contents = get_folder_contents(_drive_root_id, api_key=_drive_api_key)
+                    files = [f for f in (contents or []) if f.get("mimeType") != "application/vnd.google-apps.folder"][:3]
+                    if files:
+                        st.success(f"✅ Conexión exitosa. Primeros archivos en la carpeta:")
+                        for f in files:
+                            st.write(f"  • {f.get('name', '?')}")
+                    else:
+                        st.info("Conexión exitosa — carpeta vacía o solo subcarpetas.")
+                except Exception as _e:
+                    st.error(f"❌ Error al conectar: {_e}")
+
+    with col_d2:
+        if st.button("🔄 Re-indexar desde Drive", use_container_width=True, key="drive_reindex_btn", type="primary"):
+            from utils.shared import force_reindex, _trigger_startup_index
+            force_reindex(st.session_state.chatbot)
+            _trigger_startup_index(
+                st.session_state.chatbot,
+                _drive_root_id,
+                _drive_api_key,
+            )
+            st.success("Re-indexación iniciada en segundo plano.")
+            st.rerun()
+else:
+    st.info(
+        "**Drive no configurado.** Para conectar Google Drive, añade estos secrets en "
+        "**Streamlit Cloud → App Settings → Secrets**:\n\n"
+        "```toml\n"
+        "DRIVE_ROOT_FOLDER_ID = \"tu_folder_id\"\n"
+        "DRIVE_API_KEY = \"tu_api_key\"\n\n"
+        "[GOOGLE_SERVICE_ACCOUNT]\n"
+        "type = \"service_account\"\n"
+        "# ... resto del JSON de la cuenta de servicio\n"
+        "```",
+        icon="☁️"
+    )
+
+# ─── Sección 4: Gemini API ─────────────────────────────────────────────────────
 st.markdown("---")
 sec4_hrow = st.columns([9, 1])
-sec4_hrow[0].markdown("### 🤖 Gemini API  `Próximamente`")
+sec4_hrow[0].markdown("### 🤖 Gemini API")
 with sec4_hrow[1].popover("ℹ️"):
     st.markdown(
-        "Conecta la API de Gemini (Google AI) para habilitar:\\n\\n"
-        "- Respuestas generadas por IA en JuanMitaChat\\n"
-        "- Extracción semántica de fechas en el Calendario\\n"
-        "- Análisis de riesgo inteligente en Métricas\\n"
-        "- Comparación avanzada de contratos en Análisis Legal\\n\\n"
-        "**Esta funcionalidad estará disponible en una próxima versión.**"
+        "Gemini potencia a JuanMitaBot con respuestas inteligentes, análisis de riesgo, "
+        "comparación de contratos y extracción de fechas.\n\n"
+        "Configura `GEMINI_API_KEY` en **App Settings → Secrets** de Streamlit Cloud. "
+        "Obtén tu clave gratis en [aistudio.google.com](https://aistudio.google.com/apikey)."
     )
 
-with st.container():
-    st.markdown(
-        '<div style="background:#f5f5f5;border:1px dashed #ccc;border-radius:10px;'
-        'padding:20px;opacity:0.6;pointer-events:none;">',
-        unsafe_allow_html=True
-    )
-    col_gem1, col_gem2 = st.columns([3, 1])
-    with col_gem1:
-        st.text_input(
-            "Gemini API Key",
-            placeholder="AIza...",
-            type="password",
-            disabled=True,
-            key="gemini_key_disabled"
-        )
-    with col_gem2:
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.button("Activar IA", disabled=True, use_container_width=True)
-    st.caption("Obtén tu API Key en Google AI Studio (aistudio.google.com). Plan gratuito disponible.")
-    st.markdown('</div>', unsafe_allow_html=True)
+from core.llm_service import LLM_AVAILABLE
 
-    st.markdown(
-        '<div style="margin-top:8px;padding:8px 12px;background:#f3e5f5;border-radius:6px;'
-        'border-left:3px solid #9C27B0;font-size:13px;">'
-        '🔮 <b>Próximamente:</b> análisis semántico con IA para mayor precisión en '
-        'extracción de cláusulas, fechas y análisis de riesgo.'
-        '</div>',
-        unsafe_allow_html=True
+if LLM_AVAILABLE:
+    col_g1, col_g2 = st.columns([3, 1])
+    with col_g1:
+        st.success("✅ **Gemini activo** — modelo `gemini-2.5-flash`", icon="🤖")
+    with col_g2:
+        if st.button("🧪 Probar conexión", use_container_width=True, key="gemini_test_btn"):
+            with st.spinner("Probando Gemini..."):
+                from core.llm_service import test_gemini_connection
+                _ok, _msg = test_gemini_connection()
+                if _ok:
+                    st.success(f"✅ {_msg}")
+                else:
+                    st.error(f"❌ {_msg}")
+else:
+    st.warning(
+        "**⚫ Gemini no configurado** — JuanMitaBot funciona en modo búsqueda semántica local.\n\n"
+        "Para activar respuestas generadas por IA, añade en **Streamlit Cloud → App Settings → Secrets**:\n\n"
+        "```toml\nGEMINI_API_KEY = \"AIzaSy...\"\n```\n\n"
+        "Obtén tu clave gratuita en [aistudio.google.com/apikey](https://aistudio.google.com/apikey).",
+        icon="🤖"
     )
 
 # ─── Sección 5: Cerrar sesión ──────────────────────────────────────────────────
