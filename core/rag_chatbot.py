@@ -9,19 +9,22 @@ _log = logging.getLogger("pactora")
 
 
 class _LocalEmbeddings(BaseEmbeddings):
-    """Embeddings locales con sentence-transformers — sin API requerida."""
+    """
+    Embeddings locales via ChromaDB DefaultEmbeddingFunction (onnxruntime).
+    Usa all-MiniLM-L6-v2 sin necesitar PyTorch — ya viene con chromadb.
+    """
 
-    def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
-        from sentence_transformers import SentenceTransformer
-        self._model = SentenceTransformer(model_name)
+    def __init__(self):
+        from chromadb.utils.embedding_functions import DefaultEmbeddingFunction
+        self._fn = DefaultEmbeddingFunction()
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
         if not texts:
             return []
-        return self._model.encode(texts, show_progress_bar=False).tolist()
+        return [list(v) for v in self._fn(texts)]
 
     def embed_query(self, text: str) -> List[float]:
-        return self._model.encode([text], show_progress_bar=False)[0].tolist()
+        return list(self._fn([text])[0])
 
 
 class RAGChatbot:
@@ -35,7 +38,7 @@ class RAGChatbot:
         try:
             self.embeddings = _LocalEmbeddings()
         except Exception as e:
-            _log.error("[rag] No se pudo cargar sentence-transformers: %s", e)
+            _log.error("[rag] No se pudo cargar embeddings locales: %s", e)
             self.embeddings = None
 
         self.vectorstore: Any = None
