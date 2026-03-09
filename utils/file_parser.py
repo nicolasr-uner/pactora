@@ -1,4 +1,7 @@
 import io
+import logging
+
+_log = logging.getLogger("pactora")
 
 
 def extract_text_from_file(file_obj, filename: str, gemini_api_key: str = None) -> str:
@@ -132,5 +135,40 @@ def _extract_pdf_bytes(file_bytes: bytes) -> str:
             return "\n".join(parts)
     except Exception:
         pass
+
+    # Intento 4: Gemini Vision OCR — para PDFs escaneados sin texto seleccionable
+    try:
+        from core.llm_service import LLM_AVAILABLE, GEMINI_API_KEY
+        if LLM_AVAILABLE:
+            import fitz  # pymupdf
+            import google.generativeai as genai
+
+            genai.configure(api_key=GEMINI_API_KEY)
+            model = genai.GenerativeModel("gemini-1.5-flash")
+
+            doc = fitz.open(stream=file_bytes, filetype="pdf")
+            parts = []
+            for page in doc:
+                mat = fitz.Matrix(2.0, 2.0)
+                pix = page.get_pixmap(matrix=mat)
+                img_bytes = pix.tobytes("png")
+                import PIL.Image
+                img = PIL.Image.open(io.BytesIO(img_bytes))
+                response = model.generate_content([
+                    "Extrae todo el texto de esta página de documento. Devuelve solo el texto preservando estructura y párrafos.",
+                    img
+                ])
+                page_text = response.text if response.text else ""
+                if page_text.strip():
+                    parts.append(page_text)
+            doc.close()
+
+            if parts:
+                result = "\n".join(parts)
+                _log.info("[file_parser] OCR Gemini Vision exitoso — %d páginas, %d chars", len(parts), len(result))
+                return result
+    except Exception as e:
+        _log.warning("[file_parser] OCR Gemini Vision falló: %s", e)
+        return ""
 
     return ""

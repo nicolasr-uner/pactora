@@ -472,21 +472,9 @@ def juanmitabot_sidebar():
                     'Escribe tu pregunta abajo<br>y presiona Enter ↵</div>',
                     unsafe_allow_html=True
                 )
-            for msg in history:
-                if msg["role"] == "user":
-                    st.markdown(
-                        f'<div style="background:rgba(145,91,216,0.25);border-radius:8px;'
-                        f'padding:6px 10px;margin:4px 0;font-size:13px;">'
-                        f'👤 {msg["content"][:280]}</div>',
-                        unsafe_allow_html=True
-                    )
-                else:
-                    st.markdown(
-                        f'<div style="background:rgba(255,255,255,0.08);border-radius:8px;'
-                        f'padding:6px 10px;margin:4px 0;font-size:13px;">'
-                        f'🤖 {msg["content"][:280]}</div>',
-                        unsafe_allow_html=True
-                    )
+            for msg in history[-6:]:
+                with st.chat_message(msg["role"]):
+                    st.markdown(msg["content"])
 
         user_input = st.chat_input("Escribe tu pregunta...", key="sidebar_juanmitabot")
         if user_input:

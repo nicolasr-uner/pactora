@@ -125,50 +125,43 @@ if uploaded_files:
 
             docs = []
             errors = []
-            progress = st.progress(0)
-            status = st.empty()
 
-            for i, (name, fio) in enumerate(new_files):
-                status.text(f"Procesando {name}...")
-                progress.progress((i + 1) / len(new_files))
-                try:
-                    txt = extract_text_from_file(fio, name)
-                except Exception as ex:
-                    txt = f"Error: {ex}"
-                if txt and not txt.startswith("Error"):
-                    docs.append((txt, name, {}))
-                    status.text(f"✓ {name} — {len(txt):,} caracteres extraídos")
-                else:
-                    reason = txt[:120] if txt else "sin texto (PDF escaneado o imagen sin OCR)"
-                    errors.append(f"**{name}**: {reason}")
+            with st.status("Procesando archivos...", expanded=True) as _status:
+                for name, fio in new_files:
+                    st.write(f"📄 {name}...")
+                    try:
+                        txt = extract_text_from_file(fio, name)
+                    except Exception as ex:
+                        txt = f"Error: {ex}"
+                    if txt and not txt.startswith("Error"):
+                        docs.append((txt, name, {}))
+                    else:
+                        reason = txt[:120] if txt else "sin texto (PDF escaneado o imagen sin OCR)"
+                        errors.append(f"**{name}**: {reason}")
 
-            progress.empty()
-
-            if docs:
-                status.text("Indexando en ChromaDB...")
-                ok, msg = st.session_state.chatbot.vector_ingest_multiple(docs)
-                status.empty()
-                if ok:
-                    stats_result = st.session_state.chatbot.get_stats()
-                    st.success(
-                        f"✅ Indexados: {len(docs)} archivo(s). "
-                        f"Total en JuanMitaBot: **{stats_result['total_docs']} contrato(s)**"
-                    )
-                    for e in errors:
-                        st.warning(e)
-                    st.rerun()
-                else:
-                    st.error(f"Error al indexar en ChromaDB: {msg}")
-                    for e in errors:
-                        st.warning(e)
-            else:
-                status.empty()
-                st.error(
-                    "⚠️ Ningún archivo produjo texto extraíble. "
-                    "Asegúrate de que los PDFs tengan texto seleccionable (no sean imágenes escaneadas)."
-                )
                 for e in errors:
                     st.warning(e)
+
+                if docs:
+                    st.write("Indexando en ChromaDB...")
+                    ok, msg = st.session_state.chatbot.vector_ingest_multiple(docs)
+                    if ok:
+                        stats_result = st.session_state.chatbot.get_stats()
+                        _status.update(
+                            label=f"✅ {len(docs)} archivo(s) indexados — Total: {stats_result['total_docs']}",
+                            state="complete",
+                            expanded=False
+                        )
+                        st.rerun()
+                    else:
+                        _status.update(label="❌ Error al indexar en ChromaDB", state="error")
+                        st.error(f"Error al indexar en ChromaDB: {msg}")
+                else:
+                    _status.update(label="⚠️ Sin texto extraíble", state="error")
+                    st.error(
+                        "⚠️ Ningún archivo produjo texto extraíble. "
+                        "Asegúrate de que los PDFs tengan texto seleccionable (no sean imágenes escaneadas)."
+                    )
     else:
         st.info("Todos los archivos seleccionados ya están indexados.")
 
