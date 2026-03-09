@@ -3,6 +3,7 @@ import streamlit as st
 import datetime
 import pandas as pd
 from utils.shared import apply_styles, page_header, init_session_state, api_status_banner
+from core.llm_service import LLM_AVAILABLE
 
 apply_styles()
 init_session_state()
@@ -203,8 +204,8 @@ if not sources:
         '• Distribución por tipo de contrato (PPA, EPC, O&M, Legal)<br>'
         '• Análisis de longitud y densidad contractual<br>'
         '• Frecuencia de cláusulas clave<br>'
-        '<br>🔮 <b>Próximamente con IA:</b> extracción de montos, fechas y partes contractuales.'
-        '</div></div>',
+        + ('<br>✨ <b>Con Gemini activo:</b> extracción semántica de montos, fechas y partes.' if LLM_AVAILABLE else '<br>📊 Activa Gemini en Ajustes para análisis semántico avanzado.')
+        + '</div></div>',
         unsafe_allow_html=True
     )
     st.stop()
@@ -235,7 +236,7 @@ with col_ch2:
             "🔴 **ROJO**: Alta presencia de penalidades o cláusulas de terminación\n\n"
             "🟡 **AMARILLO**: Riesgo moderado\n\n"
             "🟢 **VERDE**: Bajo riesgo detectado\n\n"
-            "*🔮 Próximamente: análisis semántico con IA para mayor precisión.*"
+            + ("*✨ Usa **Analizar riesgos con IA** en Análisis Legal para análisis semántico por contrato.*" if LLM_AVAILABLE else "*Activa Gemini en Ajustes para análisis semántico profundo.*")
         )
 
     r1, r2, r3 = st.columns(3)
@@ -303,13 +304,13 @@ for c in contract_data:
         else:
             st.caption("No se detectaron cláusulas clave. El texto puede ser escaso.")
 
+        _risk_note = ('✨ Usa Análisis Legal → Abrir → Analizar riesgos con IA.' if LLM_AVAILABLE else 'Activa Gemini para análisis semántico.')
         st.markdown(
             f'<div style="padding:8px;border-left:4px solid {color};background:white;'
             f'border-radius:0 6px 6px 0;margin-top:8px;">'
             f'<span style="font-weight:700;color:{color};">Nivel de riesgo: {c["risk"]}</span>'
             f'<div style="font-size:11px;color:#888;margin-top:2px;">'
-            f'Calculado localmente por frecuencia de keywords. '
-            f'🔮 Con Gemini activo: análisis semántico profundo.'
+            f'Calculado por frecuencia de keywords. {_risk_note}'
             f'</div></div>',
             unsafe_allow_html=True
         )
@@ -371,8 +372,7 @@ with ins_hrow[1].popover("ℹ️"):
         "Con Gemini activo, JuanMitaBot enriquecerá estos datos con extracción semántica profunda."
     )
 
-from core.llm_service import LLM_AVAILABLE
-llm_badge = "🟢 Gemini activo" if LLM_AVAILABLE else "⚫ Solo análisis local"
+llm_badge = "🟢 Gemini activo" if LLM_AVAILABLE else "📊 Análisis local"
 
 col_ins1, col_ins2, col_ins3 = st.columns(3)
 
@@ -448,35 +448,75 @@ with col_ins3:
         unsafe_allow_html=True
     )
 
-# Botón de análisis IA (placeholder — usa datos locales hoy, LLM cuando esté activo)
+# ─── Resumen ejecutivo con JuanMitaBot ────────────────────────────────────────
 st.markdown("")
-btn_label = "✨ Enriquecer con JuanMitaBot" if LLM_AVAILABLE else "📊 Resumen local del portfolio"
-if st.button(btn_label, use_container_width=True, key="btn_insights_portfolio"):
+_portfolio_ia_key = "portfolio_ia_analysis"
+btn_label = "✨ Enriquecer con JuanMitaBot" if LLM_AVAILABLE else "📊 Resumen del portfolio"
+
+col_btn, col_clear = st.columns([4, 1])
+with col_btn:
+    run_analysis = st.button(btn_label, use_container_width=True, key="btn_insights_portfolio", type="primary")
+with col_clear:
+    if st.session_state.get(_portfolio_ia_key):
+        if st.button("🗑 Limpiar", use_container_width=True, key="btn_clear_portfolio_ia"):
+            del st.session_state[_portfolio_ia_key]
+            st.rerun()
+
+# Mostrar análisis cacheado si existe
+if st.session_state.get(_portfolio_ia_key):
+    st.markdown(
+        f'<div style="background:white;border-left:5px solid #915BD8;border-radius:0 12px 12px 0;'
+        f'padding:18px 22px;box-shadow:0 4px 16px rgba(145,91,216,0.1);margin-top:8px;">'
+        f'<div style="font-weight:900;color:#2C2039;margin-bottom:10px;font-size:16px;">'
+        f'🤖 Resumen ejecutivo del portfolio</div>'
+        f'{st.session_state[_portfolio_ia_key]}</div>',
+        unsafe_allow_html=True
+    )
+elif run_analysis:
+    n_contracts = len(contract_data)
+    n_rojos = risk_counts.get("ROJO", 0)
+    n_amarillos = risk_counts.get("AMARILLO", 0)
+    n_verdes = risk_counts.get("VERDE", 0)
+    tipos_str = ", ".join(f"{t} ({n})" for t, n in sorted(tipo_summary.items(), key=lambda x: -x[1]))
+
     if LLM_AVAILABLE:
-        st.info("Análisis IA del portfolio disponible próximamente en esta sección.", icon="🔮")
-    else:
-        # Mostrar resumen basado en datos locales ya calculados
-        n_contracts = len(contract_data)
-        n_rojos = risk_counts.get("ROJO", 0)
-        n_amarillos = risk_counts.get("AMARILLO", 0)
-        n_verdes = risk_counts.get("VERDE", 0)
-        tipos_str = ", ".join(f"{t} ({n})" for t, n in sorted(tipo_summary.items(), key=lambda x: -x[1]))
-        st.markdown(
-            f'<div style="background:#f9f5ff;border-radius:10px;padding:16px;'
-            f'border-left:4px solid #915BD8;">'
-            f'<div style="font-weight:900;color:#2C2039;margin-bottom:8px;">📋 Resumen del portfolio</div>'
-            f'<div style="font-size:13px;color:#555;line-height:1.6;">'
-            f'El portfolio contiene <b>{n_contracts} contrato(s)</b> con un total de '
-            f'<b>{total_pages:,} páginas</b> y <b>{total_words:,} palabras</b>.<br><br>'
-            f'<b>Distribución por tipo:</b> {tipos_str}.<br><br>'
-            f'<b>Semáforo de riesgo (análisis local):</b> '
-            f'<span style="color:#e53935;">🔴 {n_rojos} ROJO</span>, '
-            f'<span style="color:#f57c00;">🟡 {n_amarillos} AMARILLO</span>, '
-            f'<span style="color:#388e3c;">🟢 {n_verdes} VERDE</span>.<br><br>'
-            + (f'<b>Montos detectados:</b> {", ".join(all_amounts[:5])}.<br>' if all_amounts else "")
-            + (f'<b>Partes identificadas:</b> {", ".join(all_parties[:5])}.' if all_parties else "")
-            + f'<br><br><span style="font-size:11px;color:#aaa;">Análisis calculado localmente · '
-            f'Activa Gemini API para extracción semántica avanzada.</span>'
-            f'</div></div>',
-            unsafe_allow_html=True
+        # Construir contexto con primeros chunks de cada contrato
+        ctx_parts = []
+        for c in contract_data[:6]:  # máximo 6 contratos para no exceder tokens
+            txt = _get_full_text(c["nombre"])
+            if txt:
+                ctx_parts.append(f"[Contrato: {c['nombre']} | Tipo: {c['tipo']} | Riesgo local: {c['risk']}]\n{txt[:1200]}")
+        context = "\n\n---\n\n".join(ctx_parts) if ctx_parts else "No hay texto disponible."
+
+        prompt = (
+            f"Genera un resumen ejecutivo del portfolio de contratos de Unergy con estos {n_contracts} contratos:\n\n"
+            f"Distribución: {tipos_str}\n"
+            f"Riesgo: 🔴 {n_rojos} ROJO, 🟡 {n_amarillos} AMARILLO, 🟢 {n_verdes} VERDE\n"
+            f"Total: {total_pages} páginas, {total_words:,} palabras\n\n"
+            f"Incluye:\n"
+            f"1. Estado general del portfolio (1 párrafo)\n"
+            f"2. Contratos que requieren atención inmediata (si los hay)\n"
+            f"3. Alertas de vencimiento o fechas críticas detectadas\n"
+            f"4. Recomendaciones prioritarias para el equipo legal\n"
+            f"Usa markdown y semáforos 🔴🟡🟢 donde aplique."
         )
+        with st.spinner("JuanMitaBot analizando el portfolio..."):
+            from core.llm_service import generate_response
+            result = generate_response(prompt, context)
+        if result:
+            st.session_state[_portfolio_ia_key] = result
+            st.rerun()
+    else:
+        # Modo local: resumen basado en datos ya calculados
+        local_summary = (
+            f"**📋 Resumen del portfolio ({n_contracts} contratos)**\n\n"
+            f"Total: **{total_pages:,} páginas** · **{total_words:,} palabras**\n\n"
+            f"**Distribución por tipo:** {tipos_str}\n\n"
+            f"**Semáforo de riesgo:** "
+            f"🔴 {n_rojos} ROJO · 🟡 {n_amarillos} AMARILLO · 🟢 {n_verdes} VERDE\n"
+            + (f"\n**Montos detectados:** {', '.join(all_amounts[:5])}\n" if all_amounts else "")
+            + (f"\n**Partes identificadas:** {', '.join(all_parties[:5])}\n" if all_parties else "")
+            + "\n\n*Análisis calculado localmente · Activa Gemini para resumen ejecutivo con IA.*"
+        )
+        st.session_state[_portfolio_ia_key] = local_summary
+        st.rerun()
