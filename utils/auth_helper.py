@@ -30,9 +30,16 @@ def get_drive_service_sa():
             return None
 
         sa_dict = dict(sa)
-        # Normalizar private_key: en TOML los \n se almacenan como literal "\\n"
+        # Normalizar private_key: en TOML los \n pueden ser literales o reales
         if "private_key" in sa_dict:
-            sa_dict["private_key"] = sa_dict["private_key"].replace("\\n", "\n")
+            pk = str(sa_dict["private_key"])
+            pk = pk.replace("\\n", "\n").replace("\r", "")
+            sa_dict["private_key"] = pk
+            _log.info(
+                "[auth] PEM: len=%d, newlines=%d, has_begin=%s, has_end=%s",
+                len(pk), pk.count("\n"),
+                "BEGIN" in pk, "END" in pk,
+            )
         creds = service_account.Credentials.from_service_account_info(
             sa_dict,
             scopes=['https://www.googleapis.com/auth/drive.readonly']
