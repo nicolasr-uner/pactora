@@ -130,7 +130,7 @@ def _bg_startup_index(api_key, drive_root_id, drive_api_key):
     """Background thread: indexes all Drive contracts once on server startup."""
     # Siempre obtener el chatbot del cache para garantizar que es la misma
     # instancia que usa st.session_state.chatbot (evita el bug de "0 contratos")
-    chatbot = _get_chatbot(api_key)
+    chatbot = _get_chatbot()
     prog = _startup_index_progress
     try:
         import concurrent.futures
@@ -189,7 +189,6 @@ def _bg_startup_index(api_key, drive_root_id, drive_api_key):
                      batch_start + 1, min(batch_start + BATCH, len(files_to_index)))
 
             docs = []
-            gemini_key = chatbot.api_key  # para extraccion de PDFs escaneados
             with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
                 future_to_file = {ex.submit(download_file_to_io, f["id"], drive_api_key): f for f in batch}
                 for future in concurrent.futures.as_completed(future_to_file, timeout=120):
@@ -198,8 +197,7 @@ def _bg_startup_index(api_key, drive_root_id, drive_api_key):
                         fio = future.result()
                         prog["last_file"] = f["name"]
                         if fio:
-                            # Pasa la Gemini key para extraer PDFs escaneados via Files API
-                            txt = extract_text_from_file(fio, f["name"], gemini_api_key=gemini_key)
+                            txt = extract_text_from_file(fio, f["name"])
                             if txt and not txt.startswith("Error"):
                                 # Guarda drive_id en metadata para preview directo
                                 docs.append((txt, f["name"], {"drive_id": f["id"]}))
@@ -312,19 +310,16 @@ def apply_styles():
 
 
 def api_status_banner():
-    """Muestra estado de Gemini API y Drive. Auto-refresca mientras indexa."""
+    """Muestra estado del bot y contratos indexados."""
     try:
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.session_state.get("gemini_api_key"):
-                st.success("Gemini API activa", icon="✅")
-            else:
-                st.error("Gemini API no configurada — ve a Ajustes", icon="⚠️")
-        with col2:
-            if "drive_root_id" not in st.session_state:
-                st.warning("Drive no conectado — ve a Ajustes", icon="⚠️")
-            else:
-                _drive_status_widget()
+        try:
+            n = st.session_state.chatbot.get_stats()["total_docs"]
+        except Exception:
+            n = 0
+        if n > 0:
+            st.success(f"{n} contrato(s) indexado(s) — JuanMitaBot listo", icon="✅")
+        else:
+            st.info("Sin contratos indexados — ve a **Ajustes** para cargar documentos", icon="📄")
     except Exception:
         pass
 
@@ -373,27 +368,22 @@ def page_header(subtitle="by Unergy"):
 
 
 @st.cache_resource
-def _get_chatbot(api_key: str):
+def _get_chatbot(_unused=None):
     """Crea RAGChatbot una sola vez por proceso de servidor (cache compartido entre sesiones)."""
     from core.rag_chatbot import RAGChatbot
     try:
-        return RAGChatbot(api_key=api_key)
-    except Exception:
-        return RAGChatbot(api_key=None)
+        return RAGChatbot()
+    except Exception as e:
+        log.error("[shared] Error creando RAGChatbot: %s", e)
+        return RAGChatbot()
 
 
 def init_session_state():
-    if "gemini_api_key" not in st.session_state:
-        try:
-            st.session_state.gemini_api_key = st.secrets.get("GEMINI_API_KEY", "")
-        except Exception:
-            st.session_state.gemini_api_key = ""
-
     try:
-        st.session_state.chatbot = _get_chatbot(st.session_state.gemini_api_key)
+        st.session_state.chatbot = _get_chatbot()
     except Exception:
         from core.rag_chatbot import RAGChatbot
-        st.session_state.chatbot = RAGChatbot(api_key=None)
+        st.session_state.chatbot = RAGChatbot()
 
     defaults = {
         "current_folder_id": "",
@@ -422,12 +412,11 @@ def init_session_state():
         except Exception:
             pass
 
-    # Auto-trigger one background indexation per server process
+    # Auto-trigger one background indexation per server process (solo si Drive configurado)
     if (
         "drive_root_id" in st.session_state
         and st.session_state.get("drive_api_key", "") not in ("", "DEMO_KEY")
         and st.session_state.chatbot is not None
-        and st.session_state.chatbot.embeddings is not None
     ):
         _trigger_startup_index(
             st.session_state.chatbot,

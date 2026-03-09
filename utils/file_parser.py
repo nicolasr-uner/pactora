@@ -1,31 +1,21 @@
 import io
-import os
-import tempfile
 
 
 def extract_text_from_file(file_obj, filename: str, gemini_api_key: str = None) -> str:
     """
-    Extrae texto de PDF o DOCX.
-    Para PDFs escaneados (sin texto embebido), usa Gemini Files API como fallback.
+    Extrae texto de PDF o DOCX usando librerias locales.
+    gemini_api_key reservado para uso futuro (OCR de PDFs escaneados).
     """
     fname = filename.lower()
 
     if fname.endswith(".docx"):
         return _extract_docx(file_obj)
     elif fname.endswith(".pdf"):
-        # Leer bytes una sola vez para poder reintentar
         if hasattr(file_obj, "read"):
             file_bytes = file_obj.read()
         else:
             file_bytes = bytes(file_obj)
-
-        text = _extract_pdf_bytes(file_bytes)
-
-        # Si no hay texto (PDF escaneado), intentar con Gemini
-        if not text.strip() and gemini_api_key:
-            text = _extract_with_gemini(file_bytes, filename, gemini_api_key)
-
-        return text
+        return _extract_pdf_bytes(file_bytes)
     else:
         try:
             raw = file_obj.read() if hasattr(file_obj, "read") else bytes(file_obj)
@@ -53,7 +43,7 @@ def _extract_docx(file_obj) -> str:
 
 
 def _extract_pdf_bytes(file_bytes: bytes) -> str:
-    """Intenta pypdf primero, luego PyPDF2. Maneja paginas None."""
+    """Intenta pypdf primero, luego PyPDF2."""
     # Intento 1: pypdf
     try:
         import pypdf
@@ -75,45 +65,3 @@ def _extract_pdf_bytes(file_bytes: bytes) -> str:
         pass
 
     return ""
-
-
-def _extract_with_gemini(file_bytes: bytes, filename: str, api_key: str) -> str:
-    """
-    Lee el PDF directamente con Gemini Files API.
-    Funciona con PDFs escaneados (imagenes) que PyPDF2 no puede leer.
-    """
-    try:
-        import google.generativeai as genai
-        genai.configure(api_key=api_key)
-
-        # Escribir a archivo temporal para subir a Gemini
-        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f:
-            f.write(file_bytes)
-            tmp_path = f.name
-
-        try:
-            uploaded = genai.upload_file(
-                tmp_path,
-                mime_type="application/pdf",
-                display_name=filename
-            )
-            model = genai.GenerativeModel("gemini-2.0-flash")
-            response = model.generate_content([
-                uploaded,
-                "Extrae todo el texto de este contrato. "
-                "Incluye partes, clausulas, fechas, montos y obligaciones. "
-                "Solo el texto del documento, sin reformatear ni resumir."
-            ])
-            # Eliminar el archivo de Gemini despues de usarlo
-            try:
-                genai.delete_file(uploaded.name)
-            except Exception:
-                pass
-            return response.text or ""
-        finally:
-            os.unlink(tmp_path)
-
-    except Exception as e:
-        import logging
-        logging.getLogger("pactora").error("[gemini_ocr] Fallo para %s: %s", filename, e)
-        return f"Error OCR: {e}"
