@@ -23,6 +23,46 @@ if not _user_auth_active:
         icon="🔒"
     )
 
+# ─── Diagnóstico del sistema ──────────────────────────────────────────────────
+with st.expander("🔧 Diagnóstico del sistema", expanded=False):
+    diag_cols = st.columns(2)
+    with diag_cols[0]:
+        # Chatbot
+        cb = st.session_state.get("chatbot")
+        if cb is None:
+            st.error("❌ Chatbot no inicializado")
+        else:
+            st.success("✅ Chatbot inicializado")
+            emb_ok = cb.embeddings is not None
+            st.write(f"{'✅' if emb_ok else '❌'} Embeddings: {'cargados' if emb_ok else 'NO disponibles'}")
+            vs_ok = cb.vectorstore is not None
+            st.write(f"{'✅' if vs_ok else '⚠️'} Vectorstore: {'conectado' if vs_ok else 'no inicializado (normal si aún no hay contratos)'}")
+            try:
+                _s = cb.get_stats()
+                st.write(f"✅ ChromaDB: {_s['total_docs']} contrato(s), {_s['total_chunks']} chunks")
+            except Exception as _e:
+                st.write(f"❌ ChromaDB get_stats: {_e}")
+
+    with diag_cols[1]:
+        # Librerías
+        for lib, name in [("pypdf", "pypdf"), ("PyPDF2", "PyPDF2"), ("docx", "python-docx"),
+                          ("chromadb", "chromadb"), ("langchain_community", "langchain-community")]:
+            try:
+                __import__(lib)
+                st.write(f"✅ {name}")
+            except ImportError as _ie:
+                st.write(f"❌ {name}: {_ie}")
+
+    if st.button("🧪 Test embeddings", key="diag_emb"):
+        try:
+            cb = st.session_state.chatbot
+            vec = cb.embeddings.embed_query("prueba de embeddings")
+            st.success(f"Embeddings OK — vector dim: {len(vec)}")
+        except Exception as _e:
+            st.error(f"Error en embeddings: {_e}")
+
+st.markdown("---")
+
 # ─── Sección 1: Cargar contratos ──────────────────────────────────────────────
 sec1_hrow = st.columns([9, 1])
 sec1_hrow[0].markdown("### 📂 Cargar Contratos")
