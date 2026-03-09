@@ -131,141 +131,159 @@ tab_biblioteca, tab_upload, tab_compare, tab_editor, tab_historial = st.tabs([
 ])
 
 # ─── BIBLIOTECA ───────────────────────────────────────────────────────────────
-with tab_biblioteca:
-    hrow = st.columns([9, 1])
-    hrow[0].markdown("#### Contratos indexados")
-    with hrow[1].popover("ℹ️"):
-        st.markdown(
-            "Lista todos los contratos cargados en el sistema. "
-            "**Previsualizar** muestra el texto extraído del documento. "
-            "**Análisis básico** detecta cláusulas clave de forma local. "
-            "**Comparar** preselecciona el contrato para la pestaña Comparar."
-        )
+def _get_chunks_for(src):
+    try:
+        all_docs = st.session_state.chatbot.vectorstore.get(include=["documents", "metadatas"])
+        return [d for d, m in zip(all_docs.get("documents", []), all_docs.get("metadatas", []))
+                if m and m.get("source") == src]
+    except Exception:
+        return []
 
+with tab_biblioteca:
     stats = st.session_state.chatbot.get_stats()
     sources = stats.get("sources", [])
 
-    if not sources:
-        st.info("No hay contratos indexados. Usa la pestaña **Cargar Contrato** para agregar documentos.")
-    else:
-        search = st.text_input(
-            "buscar_bib", placeholder="🔍 Filtrar contratos...",
-            label_visibility="collapsed", key="bib_search"
-        )
-        filtered = [s for s in sources if search.lower() in s.lower()] if search else sources
-        st.caption(f"{len(filtered)} contrato(s)")
+    selected_src = st.session_state.get("library_selected")
 
-        for src in filtered:
-            with st.container():
-                cols = st.columns([5, 1, 1, 1])
+    # ── MODO SPLIT VIEW (documento seleccionado) ───────────────────────────────
+    if selected_src and selected_src in sources:
+        nav_cols = st.columns([1, 8, 1])
+        if nav_cols[0].button("← Volver", key="bib_back"):
+            del st.session_state["library_selected"]
+            st.rerun()
+        ext_sel = selected_src.lower().split(".")[-1] if "." in selected_src else ""
+        icon_sel = "📄" if ext_sel == "pdf" else "📝"
+        nav_cols[1].markdown(f"**{icon_sel} {selected_src}**")
+        if nav_cols[2].button("Comparar →", key="bib_to_cmp"):
+            st.session_state["cmp_preselect"] = selected_src
+            st.toast(f"'{selected_src[:40]}' preseleccionado para comparar", icon="✅")
+
+        col_doc, col_chat = st.columns([3, 2], gap="medium")
+
+        # ── Panel izquierdo: documento ─────────────────────────────────────────
+        with col_doc:
+            st.markdown("##### Documento")
+            cached_pdf = st.session_state.get("_file_cache", {}).get(selected_src)
+            if cached_pdf and selected_src.lower().endswith(".pdf"):
+                import base64 as _b64
+                b64_pdf = _b64.b64encode(cached_pdf).decode()
+                st.markdown(
+                    f'<iframe src="data:application/pdf;base64,{b64_pdf}" '
+                    f'width="100%" height="660" '
+                    f'style="border:1px solid #e0d4f7;border-radius:8px;"></iframe>',
+                    unsafe_allow_html=True
+                )
+                st.download_button(
+                    "⬇ Descargar PDF",
+                    data=cached_pdf, file_name=selected_src,
+                    mime="application/pdf", key="dl_pdf_bib"
+                )
+            else:
+                chunks = _get_chunks_for(selected_src)
+                if chunks:
+                    full_text = "\n\n─────────────────────\n\n".join(chunks)
+                    st.text_area(
+                        "", value=full_text, height=660,
+                        disabled=True, label_visibility="collapsed",
+                        key="bib_doc_text"
+                    )
+                    st.download_button(
+                        "⬇ Exportar texto",
+                        data=full_text.encode("utf-8"),
+                        file_name=f"{selected_src}_texto.txt",
+                        mime="text/plain", key="dl_txt_bib"
+                    )
+                else:
+                    st.info("Sin texto disponible para previsualizar.")
+
+        # ── Panel derecho: chat contextualizado ────────────────────────────────
+        with col_chat:
+            st.markdown("##### 💬 JuanMitaBot — sobre este contrato")
+            chat_sk = f"doc_chat_{selected_src}"
+            if chat_sk not in st.session_state:
+                st.session_state[chat_sk] = []
+            doc_hist = st.session_state[chat_sk]
+
+            # Historial
+            chat_box = st.container(height=530)
+            with chat_box:
+                if not doc_hist:
+                    st.markdown(
+                        '<div style="color:#aaa;text-align:center;margin-top:120px;font-size:13px;">'
+                        '🤖 Pregunta cualquier cosa<br>sobre este contrato específico</div>',
+                        unsafe_allow_html=True
+                    )
+                for msg in doc_hist:
+                    with st.chat_message(msg["role"]):
+                        st.markdown(msg["content"])
+
+            # Input como form para evitar conflicto con sidebar chat_input
+            with st.form(key=f"doc_chat_form", clear_on_submit=True):
+                doc_q = st.text_input(
+                    "Pregunta", placeholder="¿Cuáles son las partes del contrato?",
+                    label_visibility="collapsed"
+                )
+                sent = st.form_submit_button("Enviar →", use_container_width=True)
+
+            if sent and doc_q:
+                st.session_state[chat_sk].append({"role": "user", "content": doc_q})
+                try:
+                    with st.spinner("Analizando..."):
+                        ans = st.session_state.chatbot.ask_question(
+                            doc_q,
+                            filter_metadata={"source": selected_src}
+                        )
+                except Exception as _ce:
+                    ans = f"⚠️ Error: {_ce}"
+                st.session_state[chat_sk].append({"role": "assistant", "content": ans})
+                # Actualizar contexto del sidebar también
+                st.session_state["sidebar_chat_filter"] = {"source": selected_src}
+                st.session_state["sidebar_chat_title"] = selected_src
+                st.rerun()
+
+            if doc_hist:
+                if st.button("🗑 Limpiar chat", key="clear_doc_chat"):
+                    st.session_state[chat_sk] = []
+                    st.rerun()
+
+    # ── MODO LISTA ─────────────────────────────────────────────────────────────
+    else:
+        hrow = st.columns([9, 1])
+        hrow[0].markdown("#### Contratos indexados")
+        with hrow[1].popover("ℹ️"):
+            st.markdown(
+                "Haz clic en **Abrir** para ver el documento y chatear con JuanMitaBot "
+                "sobre ese contrato específico. Los PDFs subidos en esta sesión se "
+                "muestran como previsualización nativa; los demás muestran el texto extraído."
+            )
+
+        if not sources:
+            st.info("No hay contratos indexados. Usa la pestaña **Cargar Contrato** o ve a **Ajustes**.")
+        else:
+            search = st.text_input(
+                "buscar_bib", placeholder="🔍 Filtrar contratos...",
+                label_visibility="collapsed", key="bib_search"
+            )
+            filtered_s = [s for s in sources if search.lower() in s.lower()] if search else sources
+            st.caption(f"{len(filtered_s)} contrato(s)")
+
+            for src in filtered_s:
+                cols = st.columns([5, 1, 1])
                 ext = src.lower().split(".")[-1] if "." in src else ""
                 icon = "📄" if ext == "pdf" else "📝"
-                cols[0].markdown(f"**{icon} {src}**")
+                has_pdf = src in st.session_state.get("_file_cache", {})
+                label = f"**{icon} {src}**" + (" `PDF`" if has_pdf else "")
+                cols[0].markdown(label)
 
-                prev_key = f"bib_prev_{src}"
-                anal_key = f"bib_anal_{src}"
-
-                if cols[1].button("Ver", key=f"bprev_{src}", use_container_width=True, help="Previsualizar texto"):
-                    st.session_state[prev_key] = not st.session_state.get(prev_key, False)
+                if cols[1].button("Abrir", key=f"bopen_{src}", use_container_width=True):
+                    st.session_state["library_selected"] = src
+                    st.session_state["sidebar_chat_filter"] = {"source": src}
+                    st.session_state["sidebar_chat_title"] = src
                     st.rerun()
 
-                if cols[2].button("Analizar", key=f"banal_{src}", use_container_width=True, help="Análisis básico local"):
-                    st.session_state[anal_key] = not st.session_state.get(anal_key, False)
-                    st.rerun()
-
-                if cols[3].button("Comparar", key=f"bcmp_{src}", use_container_width=True, help="Preseleccionar para comparar"):
+                if cols[2].button("Comparar", key=f"bcmp_{src}", use_container_width=True):
                     st.session_state["cmp_preselect"] = src
-                    st.toast(f"'{src[:40]}' preseleccionado para comparar", icon="✅")
-
-                # Previsualización
-                if st.session_state.get(prev_key, False):
-                    with st.expander(f"📄 Contenido: {src}", expanded=True):
-                        try:
-                            all_docs = st.session_state.chatbot.vectorstore.get(
-                                include=["documents", "metadatas"]
-                            )
-                            chunks = [
-                                d for d, m in zip(
-                                    all_docs.get("documents", []),
-                                    all_docs.get("metadatas", [])
-                                )
-                                if m and m.get("source") == src
-                            ]
-                            if chunks:
-                                texto = "\n\n---\n\n".join(chunks[:5])
-                                st.text_area(
-                                    "prev_text", value=texto[:4000],
-                                    height=300, disabled=True,
-                                    label_visibility="collapsed",
-                                    key=f"ta_bib_{src}"
-                                )
-                                st.caption(f"{len(chunks)} fragmentos indexados")
-                                st.download_button(
-                                    "⬇ Exportar texto",
-                                    data=texto.encode("utf-8"),
-                                    file_name=f"{src}_texto.txt",
-                                    mime="text/plain",
-                                    key=f"dl_bib_{src}"
-                                )
-                            else:
-                                st.caption("Sin texto previsualizable.")
-                        except Exception as e:
-                            st.caption(f"Error: {e}")
-
-                # Análisis básico local (keywords)
-                if st.session_state.get(anal_key, False):
-                    try:
-                        all_docs = st.session_state.chatbot.vectorstore.get(
-                            include=["documents", "metadatas"]
-                        )
-                        chunks = [
-                            d for d, m in zip(
-                                all_docs.get("documents", []),
-                                all_docs.get("metadatas", [])
-                            )
-                            if m and m.get("source") == src
-                        ]
-                        full_text = " ".join(chunks).lower()
-
-                        CLAUSULAS = {
-                            "Penalidades": ["penalid", "multa", "sanción", "incumplimiento"],
-                            "Terminación": ["terminación", "rescisión", "resolución", "cancelación"],
-                            "Fuerza mayor": ["fuerza mayor", "caso fortuito", "evento extraordinario"],
-                            "Pagos": ["pago", "factura", "precio", "valor", "monto"],
-                            "Renovación": ["renovación", "prórroga", "extensión", "vencimiento"],
-                            "Confidencialidad": ["confidencial", "secreto", "reservado", "sigilo"],
-                            "Responsabilidad": ["responsabilidad", "indemnización", "daños y perjuicios"],
-                        }
-
-                        with st.expander(f"📋 Análisis: {src}", expanded=True):
-                            st.markdown("**Cláusulas detectadas (análisis local):**")
-                            found_any = False
-                            for clausula, keywords in CLAUSULAS.items():
-                                hits = sum(full_text.count(kw) for kw in keywords)
-                                if hits > 0:
-                                    found_any = True
-                                    color = "#388e3c" if hits >= 3 else "#f57c00"
-                                    st.markdown(
-                                        f'<div style="display:flex;justify-content:space-between;'
-                                        f'padding:6px 10px;border-left:3px solid {color};'
-                                        f'margin-bottom:4px;background:white;border-radius:0 6px 6px 0;">'
-                                        f'<span style="font-weight:600;">{clausula}</span>'
-                                        f'<span style="color:{color};font-weight:700;">{hits} mención(es)</span>'
-                                        f'</div>',
-                                        unsafe_allow_html=True
-                                    )
-                            if not found_any:
-                                st.caption("No se detectaron cláusulas clave. Verifica que el texto haya sido extraído correctamente.")
-
-                            st.markdown(
-                                '<div style="padding:8px;background:#f0f0f0;border-radius:8px;'
-                                'font-size:12px;color:#666;margin-top:10px;">'
-                                '🔮 <b>Próximamente:</b> análisis completo con IA (semáforo ROJO/AMARILLO/VERDE, '
-                                'identificación de partes, fechas clave y riesgos contractuales).</div>',
-                                unsafe_allow_html=True
-                            )
-                    except Exception as e:
-                        st.caption(f"Error en análisis: {e}")
+                    st.toast(f"'{src[:40]}' preseleccionado", icon="✅")
 
                 st.divider()
 
@@ -284,6 +302,11 @@ with tab_upload:
     if up:
         from utils.file_parser import extract_text_from_file
         raw = up.read()
+        # Cachear PDF para previsualización
+        if up.name.lower().endswith(".pdf") and len(raw) <= 10 * 1024 * 1024:
+            if "_file_cache" not in st.session_state:
+                st.session_state["_file_cache"] = {}
+            st.session_state["_file_cache"][up.name] = raw
         text = extract_text_from_file(io.BytesIO(raw), up.name)
 
         if text and not text.startswith("Error"):

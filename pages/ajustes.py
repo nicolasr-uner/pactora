@@ -98,7 +98,13 @@ if uploaded_files:
             except Exception as e:
                 st.error(f"No se pudo abrir {uf.name}: {e}")
         else:
-            expanded.append((uf.name, _io.BytesIO(uf.read())))
+            raw_bytes = uf.read()
+            # Cachear bytes del PDF para previsualización (máx 10 MB)
+            if uf.name.lower().endswith(".pdf") and len(raw_bytes) <= 10 * 1024 * 1024:
+                if "_file_cache" not in st.session_state:
+                    st.session_state["_file_cache"] = {}
+                st.session_state["_file_cache"][uf.name] = raw_bytes
+            expanded.append((uf.name, _io.BytesIO(raw_bytes)))
 
     already = set(st.session_state.chatbot._indexed_sources)
     new_files = [(name, fio) for name, fio in expanded if name not in already]
