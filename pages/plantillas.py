@@ -668,8 +668,8 @@ with tab_generar:
                                 _result = generate_response(_prompt, context="")
                             st.session_state[_cache_key] = _result
                         _borrador_ia = st.session_state[_cache_key]
-                        if _borrador_ia.startswith("Lo siento") or _borrador_ia.startswith("Error"):
-                            st.warning(f"Gemini no disponible: {_borrador_ia[:120]}. Mostrando borrador base.", icon="⚠️")
+                        if not _borrador_ia or str(_borrador_ia).startswith("Lo siento") or str(_borrador_ia).startswith("Error"):
+                            st.warning("Gemini no respondió. Mostrando borrador base.", icon="⚠️")
                         else:
                             texto_final = _borrador_ia
                             st.success("✨ Borrador ampliado por JuanMitaBot con Gemini.", icon="✅")
@@ -801,7 +801,7 @@ with tab_nueva:
                     )
                     with st.spinner("✨ JuanMitaBot generando la plantilla..."):
                         _nueva_ia = generate_response(_prompt_nueva, context="")
-                    if not (_nueva_ia.startswith("Lo siento") or _nueva_ia.startswith("Error")):
+                    if _nueva_ia and not (str(_nueva_ia).startswith("Lo siento") or str(_nueva_ia).startswith("Error")):
                         st.session_state["nueva_plt_texto"] = _nueva_ia
                         st.success("✨ Plantilla generada. Revisa el contenido a la izquierda y guárdala.", icon="✅")
                         st.rerun()
