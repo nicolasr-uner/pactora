@@ -2,8 +2,6 @@ import os
 import streamlit as st
 import threading
 import logging
-from utils.drive_manager import get_recursive_files, download_file_to_io
-from utils.file_parser import extract_text_from_file
 
 logging.basicConfig(
     level=logging.INFO,
@@ -136,6 +134,14 @@ def _bg_startup_index(api_key, drive_root_id, drive_api_key):
     prog = _startup_index_progress
     try:
         import concurrent.futures
+        try:
+            from utils.drive_manager import get_recursive_files, download_file_to_io
+            from utils.file_parser import extract_text_from_file
+        except (ImportError, KeyError) as _ie:
+            log.error("Modulos no disponibles (hot-reload race): %s — abortando", _ie)
+            prog["status"] = "error"
+            prog["error"] = f"Import error: {_ie}"
+            return
 
         # ── Intentar restaurar ChromaDB desde backup de Drive ───────────────
         restored = _restore_chromadb_from_drive(drive_root_id)
