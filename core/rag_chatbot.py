@@ -129,9 +129,19 @@ class RAGChatbot:
         chat_history: Optional[List[Dict[str, str]]] = None,
     ) -> str:
         """
-        Busca fragmentos relevantes en los contratos indexados y los retorna formateados.
-        Modo busqueda semantica — sin LLM externo requerido.
-        Cuando se configure Gemini/Groq, esta funcion generara respuestas con IA.
+        Responde preguntas sobre contratos indexados.
+
+        Modo LLM (cuando llm_service.LLM_AVAILABLE es True):
+            Recupera fragmentos relevantes, construye prompt con system message +
+            contexto + historial y llama a llm_service.generate_response() para
+            obtener una respuesta en lenguaje natural generada por Gemini.
+
+        Modo búsqueda semántica (fallback, modo actual):
+            Retorna los fragmentos relevantes formateados directamente, sin
+            generación LLM.  Es el comportamiento activo mientras no haya API key.
+
+        Para activar el modo LLM basta con configurar GEMINI_API_KEY en el entorno
+        o en .streamlit/secrets.toml — no se requiere ningún otro cambio de código.
         """
         if self.vectorstore is None:
             return "No hay contratos indexados. Ve a **Ajustes** y sube documentos para comenzar."
@@ -139,11 +149,28 @@ class RAGChatbot:
         context_text, sources = self._retrieve_context(question, filter_metadata)
 
         if not context_text:
-            return "No encontre informacion relacionada en los contratos indexados."
+            return "No encontré información relacionada en los contratos indexados."
 
         if sources and sources[0].startswith("ERROR:"):
             return f"Error al consultar la base de datos: {sources[0][6:]}"
 
+        # --- Modo LLM (Gemini activo) ---
+        try:
+            from core.llm_service import LLM_AVAILABLE, generate_response
+            if LLM_AVAILABLE:
+                llm_answer = generate_response(
+                    question=question,
+                    context=context_text,
+                    history=chat_history,
+                )
+                if llm_answer:
+                    if sources:
+                        llm_answer += f"\n\n---\n*Fuentes consultadas: {', '.join(sources)}*"
+                    return llm_answer
+        except Exception as e:
+            _log.warning("[rag] generate_response falló, usando modo búsqueda: %s", e)
+
+        # --- Modo búsqueda semántica (fallback) ---
         response = "**Fragmentos relevantes encontrados:**\n\n" + context_text
         if sources:
             response += f"\n\n---\n*Fuentes: {', '.join(sources)}*"
