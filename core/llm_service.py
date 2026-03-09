@@ -7,13 +7,14 @@ Expone tres funciones principales:
   - extract_contract_metrics(text, contract_type) -> dict
   - analyze_risk(text, contract_type) -> dict
   - generate_response(question, context, history) -> str
+  - test_gemini_connection() -> tuple[bool, str]
 
 Cuando GEMINI_API_KEY no está configurada, cada función retorna datos
 simulados realistas (modo offline/mock).  El flag LLM_AVAILABLE indica
 si Gemini está activo.
 
-Para activar Gemini: configura la variable de entorno GEMINI_API_KEY
-o añade la clave en .streamlit/secrets.toml.
+Para activar Gemini: configura GEMINI_API_KEY en st.secrets (Streamlit Cloud)
+o en la variable de entorno GEMINI_API_KEY.
 """
 
 from __future__ import annotations
@@ -21,8 +22,8 @@ from __future__ import annotations
 import json
 import logging
 import os
-import random
-from typing import Any, Dict, List, Optional
+import time
+from typing import Any, Dict, List, Optional, Tuple
 
 _log = logging.getLogger("pactora")
 
@@ -112,12 +113,52 @@ def _clean_json_response(text: str) -> str:
     return text.strip()
 
 
-def _call_gemini(prompt: str, model_name: str = "gemini-2.5-flash") -> str:
-    """Llama a Gemini y retorna el texto de respuesta."""
+# Errores que justifican reintento (transitorios)
+_RETRYABLE_CODES = {429, 500, 502, 503, 504}
+
+
+def _call_gemini(prompt: str, model_name: str = "gemini-2.5-flash", timeout: int = 30) -> str:
+    """
+    Llama a Gemini con retry exponencial (3 intentos: 2s → 4s → 8s).
+    Loguea modelo, longitud del prompt y tiempo de respuesta.
+    Lanza excepción si todos los reintentos fallan.
+    """
     from google import genai  # type: ignore
+
     client = genai.Client(api_key=GEMINI_API_KEY)
-    response = client.models.generate_content(model=model_name, contents=prompt)
-    return response.text
+    max_attempts = 3
+    delays = [2, 4, 8]
+
+    for attempt in range(max_attempts):
+        t0 = time.time()
+        try:
+            _log.info(
+                "[llm_service] Gemini call — model=%s prompt_chars=%d attempt=%d",
+                model_name, len(prompt), attempt + 1,
+            )
+            response = client.models.generate_content(
+                model=model_name,
+                contents=prompt,
+            )
+            elapsed = time.time() - t0
+            _log.info(
+                "[llm_service] Gemini OK — model=%s elapsed=%.2fs response_chars=%d",
+                model_name, elapsed, len(response.text or ""),
+            )
+            return response.text
+        except Exception as exc:
+            elapsed = time.time() - t0
+            # Detectar si es reintentable por código HTTP
+            exc_str = str(exc)
+            is_retryable = any(str(c) in exc_str for c in _RETRYABLE_CODES)
+            _log.warning(
+                "[llm_service] Gemini error — attempt=%d elapsed=%.2fs retryable=%s: %s",
+                attempt + 1, elapsed, is_retryable, exc_str[:200],
+            )
+            if attempt < max_attempts - 1 and is_retryable:
+                time.sleep(delays[attempt])
+                continue
+            raise  # No reintentable o último intento — propagar
 
 
 # ---------------------------------------------------------------------------
@@ -237,11 +278,25 @@ _MOCK_RISKS = [
 # API pública
 # ---------------------------------------------------------------------------
 
+def test_gemini_connection() -> Tuple[bool, str]:
+    """
+    Verifica la conexión a Gemini con una llamada trivial.
+    Retorna (True, "OK — gemini-2.5-flash") o (False, "mensaje de error").
+    """
+    if not LLM_AVAILABLE:
+        return False, "GEMINI_API_KEY no configurada"
+    try:
+        resp = _call_gemini("Responde exactamente: OK", model_name="gemini-2.5-flash")
+        return True, f"OK — gemini-2.5-flash ({len(resp)} chars)"
+    except Exception as exc:
+        return False, str(exc)[:200]
+
+
 def extract_contract_metrics(text: str, contract_type: str = "General") -> dict:
     """
     Extrae métricas clave del contrato: precio, vigencia, hitos, obligaciones, pólizas.
 
-    En modo LLM usa Gemini 2.0 Flash.
+    En modo LLM usa Gemini 2.5 Flash.
     En modo offline retorna datos mock realistas con estructura idéntica.
     """
     if LLM_AVAILABLE:
@@ -269,7 +324,7 @@ def analyze_risk(text: str, contract_type: str = "General") -> dict:
     """
     Evalúa el riesgo del contrato con semáforo ROJO / AMARILLO / VERDE.
 
-    En modo LLM usa Gemini 2.0 Flash.
+    En modo LLM usa Gemini 2.5 Flash.
     En modo offline retorna análisis mock con estructura idéntica.
     """
     if LLM_AVAILABLE:
@@ -302,9 +357,8 @@ def generate_response(
     """
     Genera una respuesta en lenguaje natural usando el contexto recuperado por RAG.
 
-    En modo LLM usa Gemini 2.0 Flash con el system prompt de JuanMitaBot.
-    En modo offline retorna None (la llamada no debería ocurrir en modo offline —
-    rag_chatbot.py decide cuándo llamar a esta función).
+    En modo LLM usa Gemini 2.5 Flash con el system prompt de JuanMitaBot.
+    En modo offline retorna None.
 
     Retorna la respuesta como string, o None si no está disponible.
     """
@@ -329,5 +383,5 @@ def generate_response(
         )
         return _call_gemini(prompt)
     except Exception as e:
-        _log.error("[llm_service] generate_response falló: %s", e)
-        return f"Error al generar respuesta con IA: {e}"
+        _log.error("[llm_service] generate_response falló tras reintentos: %s", e)
+        return f"⚠️ No pude generar respuesta con IA en este momento. Intenta de nuevo en unos segundos."
