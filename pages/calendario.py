@@ -137,10 +137,22 @@ def _get_all_text(src):
 stats = st.session_state.chatbot.get_stats()
 sources = stats.get("sources", [])
 
+# Auto-extracción al entrar si hay contratos y aún no hay eventos en sesión
+if sources and not st.session_state.get("contract_events"):
+    with st.spinner(f"Extrayendo fechas de {len(sources)} contrato(s)..."):
+        _auto_events = []
+        for src in sources:
+            text = _get_all_text(src)
+            if text:
+                _auto_events.extend(_extract_dates_from_text(text, src))
+        st.session_state.contract_events = _auto_events
+    if _auto_events:
+        st.toast(f"{len(_auto_events)} fecha(s) extraída(s) automáticamente.", icon="📅")
+
 tool_row = st.columns([4, 4, 1])
 with tool_row[0]:
     if sources:
-        if st.button("📅 Extraer fechas de contratos", type="primary", use_container_width=True):
+        if st.button("🔄 Re-extraer fechas", type="primary", use_container_width=True):
             all_events = []
             progress = st.progress(0)
             for i, src in enumerate(sources):

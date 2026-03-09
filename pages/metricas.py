@@ -1,3 +1,4 @@
+import re
 import streamlit as st
 import datetime
 import pandas as pd
@@ -51,6 +52,63 @@ def _guess_tipo(name, text):
     return "Otro"
 
 
+def _extract_amounts(text: str) -> list[str]:
+    """
+    Extrae montos monetarios del texto usando regex.
+    Detecta: USD X.XXX, COP X.XXX, $ X.XXX, X% del CAPEX, tarifa XX COP/kWh, etc.
+    Retorna lista de strings únicos (máx. 8).
+    """
+    found = []
+    patterns = [
+        r'USD\s*[\d,\.]+(?:\s*(?:millones?|mil))?',
+        r'COP\s*[\d,\.]+(?:\s*(?:millones?|mil))?',
+        r'\$\s*[\d,\.]+(?:\s*(?:millones?|mil|USD|COP))?',
+        r'[\d,\.]+\s*(?:COP|USD|EUR)(?:/kWh|/MWh|/MW)?',
+        r'[\d,\.]+\s*(?:millones?|mil)\s*(?:de\s*)?(?:pesos?|dólares?|USD|COP)',
+        r'\d+(?:[.,]\d+)?%?\s*del\s*(?:CAPEX|valor|contrato)',
+        r'tarifa\s+(?:fija\s+)?de\s+[\w\s,\.]+(?:USD|COP|pesos)',
+    ]
+    for pat in patterns:
+        for m in re.finditer(pat, text, re.IGNORECASE):
+            val = m.group(0).strip()
+            if val not in found and len(val) < 60:
+                found.append(val)
+    return found[:8]
+
+
+def _extract_parties(text: str) -> list[str]:
+    """
+    Extrae nombres de partes contractuales usando patrones heurísticos.
+    Busca frases como 'Vendedor: X', 'entre X y Y', 'suscrito por X', etc.
+    Retorna lista de strings únicos (máx. 6).
+    """
+    found = []
+    # Patrón: Rol: Nombre en mayúsculas
+    for m in re.finditer(
+        r'(?:Vendedor|Comprador|Contratante|Contratista|Propietario|Operador|'
+        r'Cedente|Cesionario|Parte\s+\w+)\s*:\s*([A-ZÁÉÍÓÚÑ][A-Za-záéíóúñ\s\.,S\.A\.]+?)(?:\n|\.|-)',
+        text
+    ):
+        val = m.group(1).strip().rstrip(".,")
+        if val and len(val) > 3 and val not in found:
+            found.append(val)
+    # Patrón: entre [X] y [Y]
+    for m in re.finditer(
+        r'entre\s+([A-ZÁÉÍÓÚÑ][A-Za-záéíóúñ\s\.,S\.A\.]+?)\s+y\s+([A-ZÁÉÍÓÚÑ][A-Za-záéíóúñ\s\.,S\.A\.]+?)(?:\s*,|\s*\.)',
+        text
+    ):
+        for g in (m.group(1), m.group(2)):
+            val = g.strip().rstrip(".,")
+            if val and len(val) > 3 and val not in found:
+                found.append(val)
+    # Patrón: suscrito por X
+    for m in re.finditer(r'suscrito\s+por\s+([A-ZÁÉÍÓÚÑ][A-Za-záéíóúñ\s\.,S\.A\.]+?)(?:\n|,|\.)', text):
+        val = m.group(1).strip().rstrip(".,")
+        if val and len(val) > 3 and val not in found:
+            found.append(val)
+    return found[:6]
+
+
 def _risk_level(keyword_counts):
     total = sum(keyword_counts.values())
     high_risk = keyword_counts.get("Penalidades", 0) + keyword_counts.get("Terminación anticipada", 0)
@@ -90,6 +148,8 @@ for src in sources:
         keyword_counts[cat] = sum(text_lower.count(kw) for kw in kws)
 
     risk, risk_color = _risk_level(keyword_counts)
+    amounts = _extract_amounts(text)
+    parties = _extract_parties(text)
     contract_data.append({
         "nombre": src,
         "tipo": tipo,
@@ -99,6 +159,8 @@ for src in sources:
         "keywords": keyword_counts,
         "risk": risk,
         "risk_color": risk_color,
+        "amounts": amounts,
+        "parties": parties,
     })
 
 total_words = sum(c["words"] for c in contract_data)
@@ -247,10 +309,34 @@ for c in contract_data:
             f'<span style="font-weight:700;color:{color};">Nivel de riesgo: {c["risk"]}</span>'
             f'<div style="font-size:11px;color:#888;margin-top:2px;">'
             f'Calculado localmente por frecuencia de keywords. '
-            f'🔮 Próximamente: análisis semántico con IA.'
+            f'🔮 Con Gemini activo: análisis semántico profundo.'
             f'</div></div>',
             unsafe_allow_html=True
         )
+
+        # Montos extraídos
+        if c.get("amounts"):
+            st.markdown("**Montos detectados:**")
+            st.markdown(
+                " &nbsp;·&nbsp; ".join(
+                    f'<code style="background:#e8f5e9;color:#1b5e20;padding:2px 6px;'
+                    f'border-radius:4px;">{a}</code>'
+                    for a in c["amounts"]
+                ),
+                unsafe_allow_html=True
+            )
+
+        # Partes contractuales
+        if c.get("parties"):
+            st.markdown("**Partes identificadas:**")
+            st.markdown(
+                " &nbsp;·&nbsp; ".join(
+                    f'<span style="background:#e3f2fd;color:#0d47a1;padding:2px 8px;'
+                    f'border-radius:4px;font-size:12px;">👤 {p}</span>'
+                    for p in c["parties"]
+                ),
+                unsafe_allow_html=True
+            )
 
 st.markdown("---")
 
@@ -273,3 +359,124 @@ df_freq = pd.DataFrame({
     "Contratos con esta cláusula": list(clause_presence.values())
 })
 st.bar_chart(df_freq.set_index("Cláusula"), color="#915BD8")
+
+st.markdown("---")
+
+# ─── Resumen de montos y partes (extracción local) ────────────────────────────
+ins_hrow = st.columns([9, 1])
+ins_hrow[0].markdown("#### Insights del portfolio")
+with ins_hrow[1].popover("ℹ️"):
+    st.markdown(
+        "Montos, partes contractuales y tipos detectados por análisis local (regex). "
+        "Con Gemini activo, JuanMitaBot enriquecerá estos datos con extracción semántica profunda."
+    )
+
+from core.llm_service import LLM_AVAILABLE
+llm_badge = "🟢 Gemini activo" if LLM_AVAILABLE else "⚫ Solo análisis local"
+
+col_ins1, col_ins2, col_ins3 = st.columns(3)
+
+# Montos únicos en todo el portfolio
+all_amounts = []
+for c in contract_data:
+    for a in c.get("amounts", []):
+        if a not in all_amounts:
+            all_amounts.append(a)
+
+with col_ins1:
+    st.markdown(
+        f'<div style="background:#e8f5e9;border-radius:10px;padding:14px;">'
+        f'<div style="font-weight:900;color:#1b5e20;margin-bottom:6px;">💰 Montos detectados</div>'
+        + (
+            "".join(
+                f'<div style="font-size:12px;color:#2e7d32;margin:2px 0;">• {a}</div>'
+                for a in all_amounts[:10]
+            )
+            if all_amounts else
+            '<div style="font-size:12px;color:#888;">No se detectaron montos explícitos.</div>'
+        )
+        + f'<div style="font-size:10px;color:#aaa;margin-top:8px;">{llm_badge}</div>'
+        f'</div>',
+        unsafe_allow_html=True
+    )
+
+# Partes únicas en todo el portfolio
+all_parties = []
+for c in contract_data:
+    for p in c.get("parties", []):
+        if p not in all_parties:
+            all_parties.append(p)
+
+with col_ins2:
+    st.markdown(
+        f'<div style="background:#e3f2fd;border-radius:10px;padding:14px;">'
+        f'<div style="font-weight:900;color:#0d47a1;margin-bottom:6px;">👥 Partes identificadas</div>'
+        + (
+            "".join(
+                f'<div style="font-size:12px;color:#1565c0;margin:2px 0;">• {p}</div>'
+                for p in all_parties[:10]
+            )
+            if all_parties else
+            '<div style="font-size:12px;color:#888;">No se identificaron partes explícitas.</div>'
+        )
+        + f'<div style="font-size:10px;color:#aaa;margin-top:8px;">{llm_badge}</div>'
+        f'</div>',
+        unsafe_allow_html=True
+    )
+
+# Distribución de tipos
+with col_ins3:
+    tipo_summary = {}
+    for c in contract_data:
+        tipo_summary[c["tipo"]] = tipo_summary.get(c["tipo"], 0) + 1
+    TIPO_COLORS_INS = {
+        "PPA": "#4CAF50", "EPC": "#2196F3", "O&M": "#FF9800",
+        "NDA": "#9C27B0", "Cesión": "#E91E63", "Otro": "#607D8B",
+    }
+    st.markdown(
+        f'<div style="background:#f9f5ff;border-radius:10px;padding:14px;">'
+        f'<div style="font-weight:900;color:#2C2039;margin-bottom:6px;">📊 Tipos de contrato</div>'
+        + "".join(
+            f'<div style="display:flex;justify-content:space-between;margin:3px 0;">'
+            f'<span style="background:{TIPO_COLORS_INS.get(t,"#607D8B")};color:white;'
+            f'border-radius:4px;padding:1px 7px;font-size:11px;">{t}</span>'
+            f'<span style="font-weight:700;color:#2C2039;">{n}</span></div>'
+            for t, n in sorted(tipo_summary.items(), key=lambda x: -x[1])
+        )
+        + f'<div style="font-size:10px;color:#aaa;margin-top:8px;">{llm_badge}</div>'
+        f'</div>',
+        unsafe_allow_html=True
+    )
+
+# Botón de análisis IA (placeholder — usa datos locales hoy, LLM cuando esté activo)
+st.markdown("")
+btn_label = "✨ Enriquecer con JuanMitaBot" if LLM_AVAILABLE else "📊 Resumen local del portfolio"
+if st.button(btn_label, use_container_width=True, key="btn_insights_portfolio"):
+    if LLM_AVAILABLE:
+        st.info("Análisis IA del portfolio disponible próximamente en esta sección.", icon="🔮")
+    else:
+        # Mostrar resumen basado en datos locales ya calculados
+        n_contracts = len(contract_data)
+        n_rojos = risk_counts.get("ROJO", 0)
+        n_amarillos = risk_counts.get("AMARILLO", 0)
+        n_verdes = risk_counts.get("VERDE", 0)
+        tipos_str = ", ".join(f"{t} ({n})" for t, n in sorted(tipo_summary.items(), key=lambda x: -x[1]))
+        st.markdown(
+            f'<div style="background:#f9f5ff;border-radius:10px;padding:16px;'
+            f'border-left:4px solid #915BD8;">'
+            f'<div style="font-weight:900;color:#2C2039;margin-bottom:8px;">📋 Resumen del portfolio</div>'
+            f'<div style="font-size:13px;color:#555;line-height:1.6;">'
+            f'El portfolio contiene <b>{n_contracts} contrato(s)</b> con un total de '
+            f'<b>{total_pages:,} páginas</b> y <b>{total_words:,} palabras</b>.<br><br>'
+            f'<b>Distribución por tipo:</b> {tipos_str}.<br><br>'
+            f'<b>Semáforo de riesgo (análisis local):</b> '
+            f'<span style="color:#e53935;">🔴 {n_rojos} ROJO</span>, '
+            f'<span style="color:#f57c00;">🟡 {n_amarillos} AMARILLO</span>, '
+            f'<span style="color:#388e3c;">🟢 {n_verdes} VERDE</span>.<br><br>'
+            + (f'<b>Montos detectados:</b> {", ".join(all_amounts[:5])}.<br>' if all_amounts else "")
+            + (f'<b>Partes identificadas:</b> {", ".join(all_parties[:5])}.' if all_parties else "")
+            + f'<br><br><span style="font-size:11px;color:#aaa;">Análisis calculado localmente · '
+            f'Activa Gemini API para extracción semántica avanzada.</span>'
+            f'</div></div>',
+            unsafe_allow_html=True
+        )
