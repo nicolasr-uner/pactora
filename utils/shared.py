@@ -220,10 +220,13 @@ def _bg_startup_index(api_key, drive_root_id, drive_api_key):
 
             if docs:
                 log.info("Indexando lote: %d documentos a ChromaDB...", len(docs))
-                chatbot.vector_ingest_multiple(docs)
-                total_indexed += len(docs)
-                prog["indexed"] = total_indexed
-                log.info("Lote indexado. Acumulado: %d contrato(s).", total_indexed)
+                ok, ingest_msg = chatbot.vector_ingest_multiple(docs)
+                if ok:
+                    total_indexed += len(docs)
+                    prog["indexed"] = total_indexed
+                    log.info("Lote indexado. Acumulado: %d contrato(s).", total_indexed)
+                else:
+                    log.error("Error al indexar lote: %s", ingest_msg)
 
         log.info("Descarga completada. Total con texto valido: %d/%d", total_indexed, len(files_to_index))
 

@@ -29,8 +29,12 @@ def get_drive_service_sa():
             _log.warning("[auth] GOOGLE_SERVICE_ACCOUNT no encontrado en st.secrets — SA no disponible")
             return None
 
+        sa_dict = dict(sa)
+        # Normalizar private_key: en TOML los \n se almacenan como literal "\\n"
+        if "private_key" in sa_dict:
+            sa_dict["private_key"] = sa_dict["private_key"].replace("\\n", "\n")
         creds = service_account.Credentials.from_service_account_info(
-            dict(sa),
+            sa_dict,
             scopes=['https://www.googleapis.com/auth/drive.readonly']
         )
         return build('drive', 'v3', credentials=creds)

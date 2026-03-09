@@ -134,6 +134,8 @@ class RAGChatbot:
                 self.vectorstore.add_documents(all_splits)
             return True, f"{len(documents_list)} documento(s) indexado(s) correctamente."
         except Exception as e:
+            import logging
+            logging.getLogger("pactora").error("[rag] vector_ingest_multiple fallo: %s", e, exc_info=True)
             return False, f"Error al indexar: {e}"
 
     def vector_ingest(self, text_content: str, filename: str = "doc", metadata: Optional[Dict[str, Any]] = None):
