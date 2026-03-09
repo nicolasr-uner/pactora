@@ -38,6 +38,10 @@ def _load_gemini_key() -> Optional[str]:
             key = st.secrets.get("GEMINI_API_KEY")  # type: ignore[attr-defined]
         except Exception:
             pass
+    # Rechazar placeholders — las claves reales de Gemini empiezan con "AIzaSy"
+    if key and not key.startswith("AIzaSy"):
+        _log.info("[llm_service] GEMINI_API_KEY parece un placeholder — modo búsqueda semántica activo.")
+        return None
     return key or None
 
 
