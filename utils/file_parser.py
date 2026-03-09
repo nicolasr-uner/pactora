@@ -141,10 +141,10 @@ def _extract_pdf_bytes(file_bytes: bytes) -> str:
         from core.llm_service import LLM_AVAILABLE, GEMINI_API_KEY
         if LLM_AVAILABLE:
             import fitz  # pymupdf
-            import google.generativeai as genai
+            from google import genai  # type: ignore
+            import PIL.Image
 
-            genai.configure(api_key=GEMINI_API_KEY)
-            model = genai.GenerativeModel("gemini-1.5-flash")
+            client = genai.Client(api_key=GEMINI_API_KEY)
 
             doc = fitz.open(stream=file_bytes, filetype="pdf")
             parts = []
@@ -152,12 +152,14 @@ def _extract_pdf_bytes(file_bytes: bytes) -> str:
                 mat = fitz.Matrix(2.0, 2.0)
                 pix = page.get_pixmap(matrix=mat)
                 img_bytes = pix.tobytes("png")
-                import PIL.Image
                 img = PIL.Image.open(io.BytesIO(img_bytes))
-                response = model.generate_content([
-                    "Extrae todo el texto de esta página de documento. Devuelve solo el texto preservando estructura y párrafos.",
-                    img
-                ])
+                response = client.models.generate_content(
+                    model="gemini-2.0-flash",
+                    contents=[
+                        "Extrae todo el texto de esta página de documento. Devuelve solo el texto preservando estructura y párrafos.",
+                        img,
+                    ],
+                )
                 page_text = response.text if response.text else ""
                 if page_text.strip():
                     parts.append(page_text)

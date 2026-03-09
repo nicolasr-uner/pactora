@@ -52,11 +52,10 @@ LLM_AVAILABLE: bool = bool(GEMINI_API_KEY)
 
 if LLM_AVAILABLE:
     try:
-        import google.generativeai as genai  # type: ignore
-        genai.configure(api_key=GEMINI_API_KEY)
-        _log.info("[llm_service] Gemini configurado correctamente.")
+        from google import genai as _genai_test  # type: ignore  # noqa: F401
+        _log.info("[llm_service] google-genai SDK disponible.")
     except Exception as e:
-        _log.warning("[llm_service] No se pudo inicializar Gemini: %s", e)
+        _log.warning("[llm_service] No se pudo importar google-genai: %s", e)
         LLM_AVAILABLE = False
 
 
@@ -115,9 +114,9 @@ def _clean_json_response(text: str) -> str:
 
 def _call_gemini(prompt: str, model_name: str = "gemini-2.0-flash") -> str:
     """Llama a Gemini y retorna el texto de respuesta."""
-    import google.generativeai as genai  # type: ignore
-    model = genai.GenerativeModel(model_name)
-    response = model.generate_content(prompt)
+    from google import genai  # type: ignore
+    client = genai.Client(api_key=GEMINI_API_KEY)
+    response = client.models.generate_content(model=model_name, contents=prompt)
     return response.text
 
 
