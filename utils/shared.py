@@ -277,6 +277,19 @@ STYLES = """
 .stApp { background-color: #FDFAF7; font-family: 'Lato', sans-serif; color: #212121; }
 section[data-testid="stSidebar"] { background-color: #2C2039 !important; }
 [data-testid="stSidebar"] * { color: #FDFAF7 !important; }
+/* Chat input en sidebar: fondo y texto legibles */
+[data-testid="stSidebar"] [data-testid="stChatInput"] textarea,
+[data-testid="stSidebar"] [data-testid="stChatInput"] input {
+    color: #1a1a2e !important;
+    background-color: #f0eaf8 !important;
+}
+[data-testid="stSidebar"] [data-testid="stChatInput"] {
+    background-color: #f0eaf8 !important;
+    border-radius: 8px !important;
+}
+[data-testid="stSidebar"] [data-testid="stChatInput"] textarea::placeholder {
+    color: #7a6a9a !important;
+}
 .factora-card {
     background: rgba(255,255,255,0.9); border-radius: 16px; padding: 22px;
     box-shadow: 0 6px 24px rgba(145,91,216,0.07); border: 1px solid rgba(145,91,216,0.12);
@@ -442,35 +455,58 @@ def juanmitabot_sidebar():
             pass
         st.markdown("---")
         st.markdown(
-            '<div style="font-weight:900;font-size:15px;color:#F6FF72;">💬 Asistente</div>',
+            '<div style="font-weight:900;font-size:15px;color:#F6FF72;">💬 JuanMitaBot</div>'
+            '<div style="font-size:11px;color:#c9b8e8;margin-bottom:6px;">Pregunta sobre tus contratos</div>',
             unsafe_allow_html=True
         )
         ctx = st.session_state.get("sidebar_chat_title", "")
         if ctx:
-            st.caption(f"Contexto: {ctx[:35]}")
+            st.caption(f"📄 {ctx[:35]}")
 
-        chat_container = st.container(height=280)
+        history = st.session_state.get("sidebar_chat_history", [])
+        chat_container = st.container(height=260)
         with chat_container:
-            for msg in st.session_state.get("sidebar_chat_history", []):
-                role_icon = "🤖" if msg["role"] == "assistant" else "👤"
-                st.markdown(f"**{role_icon}** {msg['content'][:300]}")
-                st.markdown("---")
+            if not history:
+                st.markdown(
+                    '<div style="color:#9d87c0;font-size:12px;text-align:center;margin-top:80px;">'
+                    'Escribe tu pregunta abajo<br>y presiona Enter ↵</div>',
+                    unsafe_allow_html=True
+                )
+            for msg in history:
+                if msg["role"] == "user":
+                    st.markdown(
+                        f'<div style="background:rgba(145,91,216,0.25);border-radius:8px;'
+                        f'padding:6px 10px;margin:4px 0;font-size:13px;">'
+                        f'👤 {msg["content"][:280]}</div>',
+                        unsafe_allow_html=True
+                    )
+                else:
+                    st.markdown(
+                        f'<div style="background:rgba(255,255,255,0.08);border-radius:8px;'
+                        f'padding:6px 10px;margin:4px 0;font-size:13px;">'
+                        f'🤖 {msg["content"][:280]}</div>',
+                        unsafe_allow_html=True
+                    )
 
-        user_input = st.chat_input("Pregunta a JuanMitaBot...", key="sidebar_juanmitabot")
+        user_input = st.chat_input("Escribe tu pregunta...", key="sidebar_juanmitabot")
         if user_input:
             st.session_state.sidebar_chat_history.append({"role": "user", "content": user_input})
             history_for_llm = st.session_state.sidebar_chat_history[:-1]
-            with st.spinner("Analizando..."):
-                ans = st.session_state.chatbot.ask_question(
-                    user_input,
-                    filter_metadata=st.session_state.get("sidebar_chat_filter"),
-                    chat_history=history_for_llm
-                )
+            try:
+                with st.spinner("Buscando..."):
+                    ans = st.session_state.chatbot.ask_question(
+                        user_input,
+                        filter_metadata=st.session_state.get("sidebar_chat_filter"),
+                        chat_history=history_for_llm
+                    )
+            except Exception as _e:
+                ans = f"⚠️ Error interno: {_e}"
+                log.error("[sidebar] ask_question falló: %s", _e, exc_info=True)
             st.session_state.sidebar_chat_history.append({"role": "assistant", "content": ans})
             st.rerun()
 
-        if st.session_state.get("sidebar_chat_history"):
-            if st.button("Limpiar chat", key="clear_sidebar_chat"):
+        if history:
+            if st.button("🗑 Limpiar chat", key="clear_sidebar_chat", use_container_width=True):
                 st.session_state.sidebar_chat_history = []
                 st.session_state.sidebar_chat_filter = None
                 st.session_state.sidebar_chat_title = ""
