@@ -442,7 +442,7 @@ def juanmitabot_sidebar():
             pass
         st.markdown("---")
         st.markdown(
-            '<div style="font-weight:900;font-size:15px;color:#F6FF72;">🤖 JuanMitaBot</div>',
+            '<div style="font-weight:900;font-size:15px;color:#F6FF72;">💬 Asistente</div>',
             unsafe_allow_html=True
         )
         ctx = st.session_state.get("sidebar_chat_title", "")

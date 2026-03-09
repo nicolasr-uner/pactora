@@ -84,36 +84,45 @@ if uploaded_files:
 
             for i, (name, fio) in enumerate(new_files):
                 status.text(f"Procesando {name}...")
-                progress.progress(i / len(new_files))
-                txt = extract_text_from_file(fio, name)
+                progress.progress((i + 1) / len(new_files))
+                try:
+                    txt = extract_text_from_file(fio, name)
+                except Exception as ex:
+                    txt = f"Error: {ex}"
                 if txt and not txt.startswith("Error"):
                     docs.append((txt, name, {}))
+                    status.text(f"✓ {name} — {len(txt):,} caracteres extraídos")
                 else:
-                    errors.append(f"{name}: {txt[:80] if txt else 'sin texto (PDF escaneado)'}")
+                    reason = txt[:120] if txt else "sin texto (PDF escaneado o imagen sin OCR)"
+                    errors.append(f"**{name}**: {reason}")
 
-            progress.progress(1.0)
+            progress.empty()
 
             if docs:
                 status.text("Indexando en ChromaDB...")
                 ok, msg = st.session_state.chatbot.vector_ingest_multiple(docs)
+                status.empty()
                 if ok:
                     stats_result = st.session_state.chatbot.get_stats()
-                    status.empty()
                     st.success(
                         f"✅ Indexados: {len(docs)} archivo(s). "
-                        f"Total en JuanMitaChat: **{stats_result['total_docs']} contrato(s)**"
+                        f"Total en JuanMitaBot: **{stats_result['total_docs']} contrato(s)**"
                     )
+                    for e in errors:
+                        st.warning(e)
+                    st.rerun()
                 else:
-                    status.empty()
-                    st.error(f"Error al indexar: {msg}")
+                    st.error(f"Error al indexar en ChromaDB: {msg}")
+                    for e in errors:
+                        st.warning(e)
             else:
                 status.empty()
-                st.error("Ningún archivo produjo texto válido.")
-
-            for e in errors:
-                st.warning(e)
-
-            st.rerun()
+                st.error(
+                    "⚠️ Ningún archivo produjo texto extraíble. "
+                    "Asegúrate de que los PDFs tengan texto seleccionable (no sean imágenes escaneadas)."
+                )
+                for e in errors:
+                    st.warning(e)
     else:
         st.info("Todos los archivos seleccionados ya están indexados.")
 
