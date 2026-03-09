@@ -183,6 +183,120 @@ if "drive_root_id" in st.session_state and st.session_state.get("drive_api_key",
 
     st.markdown("---")
 
+# ─── Carga manual de contratos ────────────────────────────────────────────────
+st.markdown("### Cargar contratos manualmente")
+st.caption("Sube PDFs o DOCXs desde tu computador para indexarlos en JuanMitaBot.")
+
+st.caption("Para una carpeta completa: comprímela en ZIP y súbela aquí.")
+
+uploaded_files = st.file_uploader(
+    "Selecciona archivos",
+    type=["pdf", "docx", "zip"],
+    accept_multiple_files=True,
+    label_visibility="collapsed",
+)
+
+if uploaded_files:
+    import io as _io, zipfile
+
+    # Expandir ZIPs a lista de (nombre, BytesIO)
+    expanded = []
+    for uf in uploaded_files:
+        if uf.name.lower().endswith(".zip"):
+            try:
+                with zipfile.ZipFile(_io.BytesIO(uf.read())) as zf:
+                    for entry in zf.namelist():
+                        if entry.lower().endswith((".pdf", ".docx")) and not entry.startswith("__MACOSX"):
+                            fname = entry.split("/")[-1]
+                            expanded.append((fname, _io.BytesIO(zf.read(entry))))
+                st.info(f"ZIP **{uf.name}**: {len([e for e in expanded])} archivos extraídos")
+            except Exception as e:
+                st.error(f"No se pudo abrir {uf.name}: {e}")
+        else:
+            expanded.append((uf.name, _io.BytesIO(uf.read())))
+
+    already = set(st.session_state.chatbot._indexed_sources)
+    new_files = [(name, fio) for name, fio in expanded if name not in already]
+    skipped = [name for name, _ in expanded if name in already]
+
+    if skipped:
+        st.info(f"Ya indexados (se omiten): {', '.join(skipped)}")
+
+    if new_files:
+        st.write(f"**{len(new_files)} archivo(s) nuevos listos para indexar:**")
+        for name, _ in new_files[:10]:
+            st.write(f"  • {name}")
+        if len(new_files) > 10:
+            st.write(f"  … y {len(new_files) - 10} más")
+
+        if st.button("Indexar archivos cargados", type="primary", use_container_width=True):
+            if not st.session_state.chatbot.embeddings:
+                st.error("Configura una Gemini API Key primero.")
+            else:
+                from utils.file_parser import extract_text_from_file
+
+                docs = []
+                errors = []
+                progress = st.progress(0)
+                status = st.empty()
+
+                for i, (name, fio) in enumerate(new_files):
+                    status.text(f"Procesando {name}...")
+                    progress.progress(i / len(new_files))
+                    txt = extract_text_from_file(
+                        fio, name,
+                        gemini_api_key=st.session_state.chatbot.api_key
+                    )
+                    if txt and not txt.startswith("Error"):
+                        docs.append((txt, name, {}))
+                    else:
+                        errors.append(f"{name}: {txt[:80] if txt else 'sin texto'}")
+
+                progress.progress(1.0)
+
+                if docs:
+                    status.text("Indexando en ChromaDB...")
+                    ok, msg = st.session_state.chatbot.vector_ingest_multiple(docs)
+                    if ok:
+                        stats = st.session_state.chatbot.get_stats()
+                        status.empty()
+                        st.success(
+                            f"Indexados: {len(docs)} archivo(s). "
+                            f"Total en bot: **{stats['total_docs']} contrato(s)**"
+                        )
+                    else:
+                        status.empty()
+                        st.error(f"Error al indexar: {msg}")
+                else:
+                    status.empty()
+                    st.error("Ningún archivo produjo texto válido.")
+
+                for e in errors:
+                    st.warning(e)
+
+                st.rerun()
+    else:
+        st.info("Todos los archivos seleccionados ya están indexados.")
+
+# ─── Contratos indexados actualmente ──────────────────────────────────────────
+stats = st.session_state.chatbot.get_stats()
+if stats["total_docs"] > 0:
+    with st.expander(f"Contratos en JuanMitaBot ({stats['total_docs']})"):
+        for src in stats["sources"]:
+            st.write(f"• {src}")
+        if st.button("Limpiar todos los contratos indexados", type="secondary"):
+            import shutil, os
+            chroma_dir = "./chroma_db"
+            if os.path.exists(chroma_dir):
+                shutil.rmtree(chroma_dir)
+            from utils.shared import _get_chatbot
+            _get_chatbot.clear()
+            st.session_state.chatbot = _get_chatbot(st.session_state.gemini_api_key)
+            st.success("ChromaDB limpiado. Vuelve a cargar los contratos.")
+            st.rerun()
+
+st.markdown("---")
+
 # ─── Debug: estado interno ────────────────────────────────────────────────────
 if "drive_root_id" in st.session_state and st.session_state.get("drive_api_key", "") not in ("", "DEMO_KEY"):
     with st.expander("Debug: estado interno y prueba sincrona"):
