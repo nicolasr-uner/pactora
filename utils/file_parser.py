@@ -3,19 +3,26 @@ import io
 
 def extract_text_from_file(file_obj, filename: str, gemini_api_key: str = None) -> str:
     """
-    Extrae texto de PDF o DOCX usando librerias locales.
-    gemini_api_key reservado para uso futuro (OCR de PDFs escaneados).
+    Extrae texto de PDF, DOCX, XLSX, XLS, CSV o TXT usando librerías locales.
+    Para PDFs escaneados intenta pymupdf como fallback con mejor extracción.
     """
     fname = filename.lower()
 
     if fname.endswith(".docx"):
         return _extract_docx(file_obj)
     elif fname.endswith(".pdf"):
-        if hasattr(file_obj, "read"):
-            file_bytes = file_obj.read()
-        else:
-            file_bytes = bytes(file_obj)
+        file_bytes = file_obj.read() if hasattr(file_obj, "read") else bytes(file_obj)
         return _extract_pdf_bytes(file_bytes)
+    elif fname.endswith(".xlsx") or fname.endswith(".xls"):
+        return _extract_excel(file_obj, fname)
+    elif fname.endswith(".csv"):
+        return _extract_csv(file_obj)
+    elif fname.endswith(".txt") or fname.endswith(".md"):
+        try:
+            raw = file_obj.read() if hasattr(file_obj, "read") else bytes(file_obj)
+            return raw.decode("utf-8", errors="replace")
+        except Exception:
+            return ""
     else:
         try:
             raw = file_obj.read() if hasattr(file_obj, "read") else bytes(file_obj)
@@ -42,8 +49,55 @@ def _extract_docx(file_obj) -> str:
         return f"Error extrayendo DOCX: {e}"
 
 
+def _extract_excel(file_obj, fname: str) -> str:
+    """Extrae texto de XLSX (openpyxl) o XLS (xlrd)."""
+    file_bytes = file_obj.read() if hasattr(file_obj, "read") else bytes(file_obj)
+
+    # XLSX con openpyxl
+    if fname.endswith(".xlsx"):
+        try:
+            import openpyxl
+            wb = openpyxl.load_workbook(io.BytesIO(file_bytes), read_only=True, data_only=True)
+            parts = []
+            for sheet in wb.worksheets:
+                parts.append(f"[Hoja: {sheet.title}]")
+                for row in sheet.iter_rows(values_only=True):
+                    row_text = " | ".join(str(c) for c in row if c is not None and str(c).strip())
+                    if row_text:
+                        parts.append(row_text)
+            return "\n".join(parts)
+        except Exception as e:
+            return f"Error extrayendo XLSX: {e}"
+
+    # XLS con xlrd
+    try:
+        import xlrd
+        wb = xlrd.open_workbook(file_contents=file_bytes)
+        parts = []
+        for sheet in wb.sheets():
+            parts.append(f"[Hoja: {sheet.name}]")
+            for rx in range(sheet.nrows):
+                row_text = " | ".join(str(v) for v in sheet.row_values(rx) if str(v).strip())
+                if row_text:
+                    parts.append(row_text)
+        return "\n".join(parts)
+    except Exception as e:
+        return f"Error extrayendo XLS: {e}"
+
+
+def _extract_csv(file_obj) -> str:
+    try:
+        import csv
+        raw = file_obj.read() if hasattr(file_obj, "read") else bytes(file_obj)
+        text = raw.decode("utf-8", errors="replace")
+        reader = csv.reader(io.StringIO(text))
+        return "\n".join(" | ".join(row) for row in reader if any(c.strip() for c in row))
+    except Exception as e:
+        return f"Error extrayendo CSV: {e}"
+
+
 def _extract_pdf_bytes(file_bytes: bytes) -> str:
-    """Intenta pypdf primero, luego PyPDF2."""
+    """Intenta pypdf → PyPDF2 → pymupdf (mejor para PDFs complejos)."""
     # Intento 1: pypdf
     try:
         import pypdf
@@ -59,6 +113,21 @@ def _extract_pdf_bytes(file_bytes: bytes) -> str:
         import PyPDF2
         reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
         parts = [t for page in reader.pages for t in [page.extract_text()] if t and t.strip()]
+        if parts:
+            return "\n".join(parts)
+    except Exception:
+        pass
+
+    # Intento 3: pymupdf (fitz) — mejor extracción en PDFs con layouts complejos
+    try:
+        import fitz  # pymupdf
+        doc = fitz.open(stream=file_bytes, filetype="pdf")
+        parts = []
+        for page in doc:
+            text = page.get_text("text")
+            if text and text.strip():
+                parts.append(text)
+        doc.close()
         if parts:
             return "\n".join(parts)
     except Exception:

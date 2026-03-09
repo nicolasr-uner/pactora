@@ -5,10 +5,14 @@ google-auth-oauthlib
 python-docx
 PyPDF2
 pypdf
+pymupdf
+openpyxl
+xlrd
 pandas
 chromadb
 langchain
 langchain-community
+langchain-core
 langchain-text-splitters
 python-dotenv
 streamlit-calendar

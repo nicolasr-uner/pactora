@@ -73,11 +73,11 @@ with sec1_hrow[1].popover("ℹ️"):
         "Los archivos se procesan localmente — no se envían a ningún servidor externo."
     )
 
-st.caption("Sube PDFs o DOCXs desde tu computador. Para una carpeta completa: comprímela en ZIP.")
+st.caption("Sube contratos desde tu computador: PDF, DOCX, XLSX, XLS, CSV, TXT. Para una carpeta completa: comprímela en ZIP.")
 
 uploaded_files = st.file_uploader(
     "Selecciona archivos",
-    type=["pdf", "docx", "zip"],
+    type=["pdf", "docx", "xlsx", "xls", "csv", "txt", "zip"],
     accept_multiple_files=True,
     label_visibility="collapsed",
 )
@@ -91,7 +91,7 @@ if uploaded_files:
             try:
                 with zipfile.ZipFile(_io.BytesIO(uf.read())) as zf:
                     for entry in zf.namelist():
-                        if entry.lower().endswith((".pdf", ".docx")) and not entry.startswith("__MACOSX"):
+                        if entry.lower().endswith((".pdf", ".docx", ".xlsx", ".xls", ".csv", ".txt")) and not entry.startswith("__MACOSX"):
                             fname = entry.split("/")[-1]
                             expanded.append((fname, _io.BytesIO(zf.read(entry))))
                 st.info(f"ZIP **{uf.name}**: {len(expanded)} archivo(s) extraído(s)")
