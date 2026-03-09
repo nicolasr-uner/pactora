@@ -112,7 +112,7 @@ def _clean_json_response(text: str) -> str:
     return text.strip()
 
 
-def _call_gemini(prompt: str, model_name: str = "gemini-2.0-flash") -> str:
+def _call_gemini(prompt: str, model_name: str = "gemini-2.5-flash") -> str:
     """Llama a Gemini y retorna el texto de respuesta."""
     from google import genai  # type: ignore
     client = genai.Client(api_key=GEMINI_API_KEY)

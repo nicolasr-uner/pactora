@@ -154,7 +154,7 @@ def _extract_pdf_bytes(file_bytes: bytes) -> str:
                 img_bytes = pix.tobytes("png")
                 img = PIL.Image.open(io.BytesIO(img_bytes))
                 response = client.models.generate_content(
-                    model="gemini-2.0-flash",
+                    model="gemini-2.5-flash",
                     contents=[
                         "Extrae todo el texto de esta página de documento. Devuelve solo el texto preservando estructura y párrafos.",
                         img,
