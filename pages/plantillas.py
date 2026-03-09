@@ -3,6 +3,7 @@ import difflib
 import streamlit as st
 
 from utils.shared import apply_styles, page_header, init_session_state, api_status_banner
+from core.llm_service import LLM_AVAILABLE, generate_response
 
 apply_styles()
 init_session_state()
@@ -566,7 +567,9 @@ with tab_generar:
         st.markdown(
             "Selecciona una plantilla del catálogo, completa los campos variables "
             "y obtén un borrador con tus datos. "
-            "🔮 *Con Gemini activo, JuanMitaBot ampliará cada cláusula automáticamente.*"
+            + ("✨ JuanMitaBot ampliará cada cláusula automáticamente con Gemini."
+               if LLM_AVAILABLE else
+               "Activa Gemini para que JuanMitaBot amplíe las cláusulas del borrador.")
         )
 
     # Solo plantillas del catálogo estático (tienen campos definidos)
@@ -606,7 +609,6 @@ with tab_generar:
                         key=f"gen_{sel_gen}_{campo}"
                     )
 
-                from core.llm_service import LLM_AVAILABLE
                 generar_label = "✨ Generar con JuanMitaBot" if LLM_AVAILABLE else "👁️ Vista previa del borrador"
                 generar = st.button(generar_label, type="primary", use_container_width=True, key="btn_generar_plt")
 
@@ -650,13 +652,27 @@ with tab_generar:
                     for campo, valor in valores.items():
                         texto_final = texto_final.replace(f"[{campo}]", valor.strip())
 
+                    _cache_key = f"plt_gen_{sel_gen}_{'_'.join(valores.values())}"
                     if LLM_AVAILABLE:
-                        # Placeholder: cuando Gemini esté activo, llamar a llm_service
-                        st.info(
-                            "JuanMitaBot está listo para ampliar este borrador. "
-                            "Activa la API key de Gemini para generar el contrato completo.",
-                            icon="🔮"
-                        )
+                        if _cache_key not in st.session_state:
+                            tipo_plt = plt_gen.get("tipo", "contrato")
+                            _prompt = (
+                                f"Eres un abogado experto en energía solar colombiana y contratos del sector energético. "
+                                f"Toma esta plantilla base de tipo {tipo_plt} con los campos ya completados y genera un borrador "
+                                f"profesional y completo del contrato. Amplía cada cláusula con detalle legal apropiado, "
+                                f"usando terminología jurídica colombiana estándar. Mantén el formato de numeración de cláusulas. "
+                                f"No omitas ninguna cláusula del original.\n\n"
+                                f"PLANTILLA CON CAMPOS COMPLETADOS:\n{texto_final}"
+                            )
+                            with st.spinner("✨ JuanMitaBot está generando el borrador completo..."):
+                                _result = generate_response(_prompt, context="")
+                            st.session_state[_cache_key] = _result
+                        _borrador_ia = st.session_state[_cache_key]
+                        if _borrador_ia.startswith("Lo siento") or _borrador_ia.startswith("Error"):
+                            st.warning(f"Gemini no disponible: {_borrador_ia[:120]}. Mostrando borrador base.", icon="⚠️")
+                        else:
+                            texto_final = _borrador_ia
+                            st.success("✨ Borrador ampliado por JuanMitaBot con Gemini.", icon="✅")
                     else:
                         st.success("Borrador generado con los campos completados.", icon="✅")
 
@@ -695,7 +711,9 @@ with tab_nueva:
     with hrow[1].popover("ℹ️"):
         st.markdown(
             "Escribe o pega el texto de una nueva plantilla para guardarla en la sesión. "
-            "🔮 *Con Gemini activo, JuanMitaBot podrá generarla desde una descripción.*"
+            + ("✨ *Con Gemini activo, genera la plantilla desde una descripción con JuanMitaBot.*"
+               if LLM_AVAILABLE else
+               "*Activa Gemini para generar plantillas desde una descripción en lenguaje natural.*")
         )
 
     col_form, col_ai = st.columns([3, 2])
@@ -743,23 +761,63 @@ with tab_nueva:
                 st.error("Completa el nombre y el contenido.", icon="⚠️")
 
     with col_ai:
-        from core.llm_service import LLM_AVAILABLE as _LLM
-        ai_color = "#e8f5e9" if _LLM else "#f9f5ff"
-        ai_badge = "🟢 Activo" if _LLM else "⚫ Inactivo"
+        ai_badge = "🟢 Activo" if LLM_AVAILABLE else "⚫ Inactivo"
         st.markdown(
-            f'<div style="padding:16px;background:{ai_color};border-radius:12px;'
-            f'border:1px solid #e0d4f7;">'
             f'<div style="font-weight:900;color:#2C2039;margin-bottom:8px;">'
-            f'🔮 Generación con JuanMitaBot <span style="font-size:11px;">{ai_badge}</span></div>'
-            f'<div style="font-size:13px;color:#666;margin-bottom:12px;">'
-            f'{"Describe el contrato que necesitas y JuanMitaBot lo generará completo." if _LLM else "Próximamente: describe el contrato que necesitas y JuanMitaBot generará una plantilla completa basada en los estándares de Pactora."}'
-            f'</div>'
-            f'<div style="font-size:12px;color:#915BD8;font-weight:600;">'
-            f'{"Usa la pestaña Generar para activarlo." if _LLM else "Disponible con Gemini API"}'
-            f'</div>'
-            f'</div>',
+            f'✨ Generar con JuanMitaBot <span style="font-size:11px;">{ai_badge}</span></div>',
             unsafe_allow_html=True
         )
+        if LLM_AVAILABLE:
+            desc_ia = st.text_area(
+                "Describe la plantilla que necesitas",
+                placeholder=(
+                    "Ej: Contrato PPA de 15 años para planta solar de 5 MW en Colombia, "
+                    "con indexación al IPC, garantías bancarias y penalidades por retraso..."
+                ),
+                height=140,
+                key="nueva_plt_desc_ia"
+            )
+            tipo_ia = st.selectbox(
+                "Tipo de contrato",
+                ["PPA", "EPC", "O&M", "SHA", "NDA", "Legal", "Otro"],
+                key="nueva_plt_tipo_ia"
+            )
+            if st.button("✨ Generar plantilla con JuanMitaBot", type="primary",
+                         use_container_width=True, key="btn_generar_ia_nueva"):
+                if not desc_ia.strip():
+                    st.warning("Escribe una descripción antes de generar.", icon="⚠️")
+                else:
+                    _prompt_nueva = (
+                        f"Eres un abogado experto en contratos del sector energético colombiano. "
+                        f"Genera una plantilla profesional de {tipo_ia} basada en esta descripción:\n\n"
+                        f"{desc_ia.strip()}\n\n"
+                        f"Requisitos:\n"
+                        f"- Usa cláusulas numeradas (1., 2., 3., ...)\n"
+                        f"- Incluye variables entre corchetes: [NOMBRE_VARIABLE]\n"
+                        f"- Sigue los estándares jurídicos colombianos\n"
+                        f"- Cubre: partes, objeto, plazo, precio/contraprestación, obligaciones, "
+                        f"garantías, penalidades, ley aplicable, resolución de conflictos\n"
+                        f"- Mínimo 8 cláusulas"
+                    )
+                    with st.spinner("✨ JuanMitaBot generando la plantilla..."):
+                        _nueva_ia = generate_response(_prompt_nueva, context="")
+                    if not (_nueva_ia.startswith("Lo siento") or _nueva_ia.startswith("Error")):
+                        st.session_state["nueva_plt_texto"] = _nueva_ia
+                        st.success("✨ Plantilla generada. Revisa el contenido a la izquierda y guárdala.", icon="✅")
+                        st.rerun()
+                    else:
+                        st.error(f"Error al generar: {_nueva_ia[:200]}")
+        else:
+            st.markdown(
+                '<div style="padding:16px;background:#f9f5ff;border-radius:12px;border:1px solid #e0d4f7;">'
+                '<div style="font-size:13px;color:#666;margin-bottom:8px;">'
+                'Describe el contrato que necesitas y JuanMitaBot generará una plantilla completa '
+                'basada en los estándares de Pactora.'
+                '</div>'
+                '<div style="font-size:12px;color:#915BD8;font-weight:600;">Disponible con Gemini API</div>'
+                '</div>',
+                unsafe_allow_html=True
+            )
 
         # Plantillas guardadas en sesión
         if st.session_state.get("plantillas_custom"):

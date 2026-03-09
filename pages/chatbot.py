@@ -139,19 +139,18 @@ else:
 
     with col_right:
         st.markdown("### ¿Cómo buscar?")
-        st.markdown("""
-Escribe tu consulta en lenguaje natural:
-
-- *¿Cuáles son las partes del contrato?*
-- *¿Qué dice sobre penalidades por incumplimiento?*
-- *¿Cuándo vence el plazo de ejecución?*
-- *Muéstrame las cláusulas de fuerza mayor*
-
-Los resultados muestran los fragmentos más relevantes de los contratos indexados.
-
----
-*🔮 Próximamente: respuestas generadas por IA*
-        """)
+        st.markdown(
+            "Escribe tu consulta en lenguaje natural:\n\n"
+            "- *¿Cuáles son las partes del contrato?*\n"
+            "- *¿Qué dice sobre penalidades por incumplimiento?*\n"
+            "- *¿Cuándo vence el plazo de ejecución?*\n"
+            "- *Muéstrame las cláusulas de fuerza mayor*\n\n"
+            "Los resultados muestran los fragmentos más relevantes de los contratos indexados.\n\n"
+            "---\n"
+            + ("*✨ Gemini activo — las respuestas están potenciadas por IA*"
+               if LLM_AVAILABLE else
+               "*Activa Gemini en Ajustes para respuestas generadas por IA*")
+        )
 
         # Historial de búsquedas
         if st.session_state.get("jmc_history"):

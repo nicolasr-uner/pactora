@@ -1,8 +1,10 @@
 import streamlit as st
 import datetime
 import re
+import json
 from collections import defaultdict
 from utils.shared import apply_styles, page_header, init_session_state, api_status_banner
+from core.llm_service import LLM_AVAILABLE, generate_response
 
 apply_styles()
 init_session_state()
@@ -185,8 +187,75 @@ with tool_row[2]:
             "- `dd de [mes] de yyyy`\n\n"
             "El tipo de evento se infiere según palabras clave cercanas a la fecha "
             "(vencimiento, pago, inicio, renovación).\n\n"
-            "🔮 *Próximamente: extracción semántica con IA para mayor precisión.*"
+            + ("✨ *Usa el botón IA para que Gemini enriquezca la extracción semántica.*"
+               if LLM_AVAILABLE else
+               "*Activa Gemini para extracción semántica con IA de mayor precisión.*")
         )
+
+# ─── Enriquecer con IA ────────────────────────────────────────────────────────
+if LLM_AVAILABLE and sources:
+    with st.expander("✨ Enriquecer extracción con JuanMitaBot (IA)", expanded=False):
+        st.caption(
+            "Gemini analiza el texto completo de los contratos seleccionados y extrae fechas "
+            "con comprensión semántica — capturando hitos implícitos que los patrones de texto no detectan."
+        )
+        srcs_ia = st.multiselect(
+            "Contratos a analizar con IA",
+            options=sources,
+            default=sources[:3],
+            key="cal_ia_srcs"
+        )
+        if st.button("✨ Extraer fechas con IA", type="primary", use_container_width=True, key="btn_cal_ia"):
+            if not srcs_ia:
+                st.warning("Selecciona al menos un contrato.", icon="⚠️")
+            else:
+                _ia_events = list(st.session_state.get("contract_events", []))
+                _ia_new = 0
+                with st.status("Analizando contratos con Gemini...", expanded=True) as _ia_status:
+                    for _src in srcs_ia:
+                        st.write(f"📄 {_src}...")
+                        _text = _get_all_text(_src)
+                        if not _text:
+                            st.write(f"  ⚠️ Sin texto extraíble")
+                            continue
+                        _prompt_cal = (
+                            f"Analiza este contrato y extrae TODAS las fechas importantes: "
+                            f"vencimientos, pagos, hitos, renovaciones, inicios de vigencia.\n\n"
+                            f"Responde ÚNICAMENTE con un array JSON válido con este formato exacto:\n"
+                            f'[{{"fecha": "YYYY-MM-DD", "tipo_evento": "vencimiento|pago|inicio|renovacion|hito", '
+                            f'"descripcion": "descripción breve en máx 80 chars"}}]\n\n'
+                            f"Si no hay fechas claras, responde: []\n\n"
+                            f"CONTRATO ({_src}):\n{_text[:4000]}"
+                        )
+                        try:
+                            _resp = generate_response(_prompt_cal, context="")
+                            _json_match = re.search(r'\[[\s\S]*\]', _resp)
+                            if _json_match:
+                                _parsed = json.loads(_json_match.group())
+                                _existing_keys = {(e["fecha"], e["contrato"][:20]) for e in _ia_events}
+                                for _ev in _parsed:
+                                    _ev_key = (_ev.get("fecha", ""), _src[:20])
+                                    if _ev_key not in _existing_keys:
+                                        _ia_events.append({
+                                            "contrato": _src,
+                                            "fecha": _ev.get("fecha", ""),
+                                            "tipo_evento": _ev.get("tipo_evento", "hito"),
+                                            "descripcion": _ev.get("descripcion", "")[:80],
+                                        })
+                                        _existing_keys.add(_ev_key)
+                                        _ia_new += 1
+                                st.write(f"  ✅ {len(_parsed)} fecha(s) encontradas")
+                            else:
+                                st.write(f"  ⚠️ Sin fechas detectadas por IA")
+                        except Exception as _exc:
+                            st.write(f"  ❌ Error: {str(_exc)[:80]}")
+                    st.session_state.contract_events = _ia_events
+                    _ia_status.update(
+                        label=f"✅ {_ia_new} fecha(s) nuevas añadidas por IA",
+                        state="complete", expanded=False
+                    )
+                if _ia_new > 0:
+                    st.rerun()
 
 # ─── Leyenda ──────────────────────────────────────────────────────────────────
 leg_cols = st.columns(5)
