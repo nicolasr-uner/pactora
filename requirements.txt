@@ -7,6 +7,7 @@ python-docx
 PyPDF2
 pypdf
 pymupdf
+Pillow
 openpyxl
 xlrd
 pandas
