@@ -118,8 +118,68 @@ init_session_state()
 page_header()
 api_status_banner()
 
+from core.llm_service import LLM_AVAILABLE
+
 st.markdown("## Análisis Legal de Contratos")
-st.caption("Carga, previsualiza, edita y compara contratos. El análisis con IA estará disponible próximamente.")
+_legal_caption = (
+    "Análisis legal potenciado con IA (Gemini 2.5 Flash) · JuanMitaBot activo"
+    if LLM_AVAILABLE else
+    "Análisis local por búsqueda semántica · Activa Gemini en Ajustes para IA completa"
+)
+st.caption(_legal_caption)
+
+
+def _detect_contract_type(name: str, text: str = "") -> str:
+    """Detecta el tipo de contrato desde el nombre o texto."""
+    s = (name + " " + text[:500]).upper()
+    for kw, tipo in [
+        ("PPA", "PPA"), ("EPC", "EPC"), ("O&M", "O&M"), ("OAM", "O&M"),
+        ("SHA", "SHA"), ("NDA", "NDA"), ("ARRIENDO", "Arriendo"),
+        ("FIDUCIA", "Fiducia"), ("REPRESENTACION", "Representación de Frontera"),
+        ("FRONTERA", "Representación de Frontera"),
+    ]:
+        if kw in s:
+            return tipo
+    return "General"
+
+
+def _render_risk_result(risk: dict):
+    """Renderiza el resultado de analyze_risk() con semáforo visual."""
+    nivel = risk.get("Nivel", "VERDE").upper()
+    color_map = {"ROJO": ("#e53935", "🔴"), "AMARILLO": ("#f57c00", "🟡"), "VERDE": ("#388e3c", "🟢")}
+    color, emoji = color_map.get(nivel, ("#915BD8", "🔵"))
+    score = risk.get("compliance_score", 0)
+
+    st.markdown(
+        f'<div style="background:white;border-left:5px solid {color};border-radius:0 10px 10px 0;'
+        f'padding:14px 18px;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,0.07);">'
+        f'<div style="font-size:22px;font-weight:900;color:{color};">'
+        f'{emoji} Nivel de riesgo: {nivel}</div>'
+        f'<div style="color:#555;font-size:13px;margin-top:6px;">{risk.get("summary","")}</div>'
+        f'</div>',
+        unsafe_allow_html=True
+    )
+    st.progress(score / 100, text=f"Compliance score: {score}/100")
+
+    alertas = risk.get("Alertas", [])
+    if alertas:
+        st.markdown("**⚠️ Alertas:**")
+        for a in alertas:
+            st.markdown(f"- {a}")
+
+    risks = risk.get("risks", [])
+    if risks:
+        st.markdown("**Detalle por cláusula:**")
+        for r in risks:
+            lvl = r.get("level", "Verde").capitalize()
+            c2, e2 = color_map.get(lvl.upper(), ("#915BD8", "🔵"))
+            st.markdown(
+                f'<div style="background:#fafafa;border-left:3px solid {c2};'
+                f'padding:8px 12px;margin:4px 0;border-radius:0 6px 6px 0;font-size:13px;">'
+                f'<b>{e2} {r.get("clause","")}</b> — {r.get("reason","")}<br>'
+                f'<span style="color:#915BD8;">→ {r.get("action","")}</span></div>',
+                unsafe_allow_html=True
+            )
 
 # ─── Tabs ─────────────────────────────────────────────────────────────────────
 tab_biblioteca, tab_upload, tab_compare, tab_editor, tab_historial = st.tabs([
@@ -246,6 +306,32 @@ with tab_biblioteca:
                     st.session_state[chat_sk] = []
                     st.rerun()
 
+            # ── Análisis de riesgos con IA ────────────────────────────────────
+            st.markdown("---")
+            st.markdown("##### 🔍 Análisis de Riesgos")
+            risk_key = f"risk_{selected_src}"
+            cached_risk = st.session_state.get(risk_key)
+
+            if cached_risk:
+                _render_risk_result(cached_risk)
+                if st.button("🔄 Re-analizar", key="reanalyze_risk", use_container_width=True):
+                    del st.session_state[risk_key]
+                    st.rerun()
+            else:
+                btn_label = "🔍 Analizar riesgos con IA" if LLM_AVAILABLE else "📊 Analizar riesgos (local)"
+                if st.button(btn_label, key="analyze_risk_btn", use_container_width=True, type="primary"):
+                    chunks = _get_chunks_for(selected_src)
+                    full_text = "\n".join(chunks)
+                    if full_text:
+                        with st.spinner("Analizando riesgos..."):
+                            from core.llm_service import analyze_risk
+                            contract_type = _detect_contract_type(selected_src, full_text)
+                            risk_result = analyze_risk(full_text, contract_type)
+                        st.session_state[risk_key] = risk_result
+                        st.rerun()
+                    else:
+                        st.warning("Sin texto disponible para analizar.")
+
     # ── MODO LISTA ─────────────────────────────────────────────────────────────
     else:
         hrow = st.columns([9, 1])
@@ -333,14 +419,22 @@ with tab_upload:
                     height=250, disabled=True, label_visibility="collapsed"
                 )
 
-            st.markdown(
-                '<div style="padding:10px;background:#f9f5ff;border-radius:8px;'
-                'border:1px solid #e0d4f7;font-size:13px;color:#555;">'
-                '🔮 <b>Próximamente:</b> análisis automático de riesgos con IA — '
-                'identificará partes, fechas clave, cláusulas problemáticas y nivel de riesgo.'
-                '</div>',
-                unsafe_allow_html=True
-            )
+            st.markdown("---")
+            st.markdown("##### 🔍 Análisis de Riesgos")
+            _up_risk_key = f"risk_{up.name}"
+            if st.session_state.get(_up_risk_key):
+                _render_risk_result(st.session_state[_up_risk_key])
+                if st.button("🔄 Re-analizar", key="up_reanalyze"):
+                    del st.session_state[_up_risk_key]
+                    st.rerun()
+            else:
+                _btn_lbl = "🔍 Analizar riesgos con IA" if LLM_AVAILABLE else "📊 Analizar riesgos (local)"
+                if st.button(_btn_lbl, key="up_analyze_risk", use_container_width=True, type="primary"):
+                    with st.spinner("Analizando riesgos..."):
+                        from core.llm_service import analyze_risk
+                        _ct = _detect_contract_type(up.name, text)
+                        st.session_state[_up_risk_key] = analyze_risk(text, _ct)
+                    st.rerun()
         else:
             st.error(
                 "No se pudo extraer texto del archivo. "
@@ -357,7 +451,7 @@ with tab_compare:
             "Compara el texto de dos contratos lado a lado. "
             "Las diferencias se resaltan automáticamente. "
             "Puedes elegir contratos ya indexados o subir uno nuevo. "
-            "🔮 *Próximamente: análisis comparativo con IA.*"
+            + ("✨ Análisis comparativo con IA disponible." if LLM_AVAILABLE else "Activa Gemini para análisis IA de diferencias.")
         )
 
     stats_cmp = st.session_state.chatbot.get_stats()
@@ -485,14 +579,39 @@ with tab_compare:
             else:
                 st.success("Los documentos son idénticos en el fragmento analizado.")
 
-            st.markdown(
-                '<div style="padding:10px;background:#f9f5ff;border-radius:8px;'
-                'border:1px solid #e0d4f7;font-size:13px;color:#555;margin-top:12px;">'
-                '🔮 <b>Próximamente:</b> comparación semántica con IA — identificará diferencias '
-                'en cláusulas, montos, plazos y nivel de riesgo con semáforo ROJO/AMARILLO/VERDE.'
-                '</div>',
-                unsafe_allow_html=True
-            )
+            # ── Análisis IA de diferencias ─────────────────────────────────────
+            st.markdown("---")
+            _cmp_key = f"cmp_ia_{contract_left}_{contract_right}"
+            if st.session_state.get(_cmp_key):
+                st.markdown("#### 🤖 Análisis IA de diferencias")
+                st.markdown(
+                    f'<div style="background:white;border-left:4px solid #915BD8;border-radius:0 10px 10px 0;'
+                    f'padding:14px 18px;box-shadow:0 2px 8px rgba(0,0,0,0.07);">'
+                    f'{st.session_state[_cmp_key]}</div>',
+                    unsafe_allow_html=True
+                )
+                if st.button("🔄 Re-analizar con IA", key="cmp_reanalyze"):
+                    del st.session_state[_cmp_key]
+                    st.rerun()
+            elif LLM_AVAILABLE:
+                if st.button("🤖 Analizar diferencias con IA", key="cmp_ia_btn", use_container_width=True, type="primary"):
+                    with st.spinner("Analizando diferencias con IA..."):
+                        from core.llm_service import generate_response
+                        _cmp_prompt = (
+                            f"Compara estos dos contratos y genera:\n"
+                            f"1. Tabla de diferencias clave (cláusulas, montos, plazos)\n"
+                            f"2. Cláusulas presentes en uno pero ausentes en el otro\n"
+                            f"3. Cuál tiene mayor riesgo y por qué (semáforo 🔴🟡🟢)\n\n"
+                            f"**Contrato base ({contract_left}):**\n{text_left[:4000]}\n\n"
+                            f"**Contrato comparado ({contract_right}):**\n{text_right[:4000]}"
+                        )
+                        _cmp_ctx = f"[Fuente: {contract_left}]\n{text_left[:3000]}\n\n[Fuente: {contract_right}]\n{text_right[:3000]}"
+                        _ia_result = generate_response(_cmp_prompt, _cmp_ctx)
+                    if _ia_result:
+                        st.session_state[_cmp_key] = _ia_result
+                        st.rerun()
+            else:
+                st.caption("📊 Activa Gemini en Ajustes para obtener análisis IA de diferencias entre contratos.")
 
 # ─── EDITOR ───────────────────────────────────────────────────────────────────
 with tab_editor:
