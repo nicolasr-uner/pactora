@@ -1,8 +1,117 @@
+import json
 import streamlit as st
 import io
 import datetime
 import difflib
 from utils.shared import apply_styles, page_header, init_session_state, api_status_banner
+
+# ─── Persistencia de versiones en Drive ───────────────────────────────────────
+_VERSIONS_FILENAME = "_pactora_versions.json"
+
+
+def _save_versions_to_drive() -> bool:
+    """Guarda doc_versions (historial) como JSON en Drive root. Retorna True si OK."""
+    drive_root_id = st.session_state.get("drive_root_id", "")
+    if not drive_root_id:
+        return False
+    try:
+        from utils.auth_helper import get_drive_service
+        from googleapiclient.http import MediaIoBaseUpload
+        service = get_drive_service()
+        if not service:
+            return False
+
+        payload = {}
+        for doc_name, ver in st.session_state.doc_versions.items():
+            payload[doc_name] = {
+                "original": ver.get("original", "")[:50000],   # cap para no superar límite Drive
+                "draft": ver.get("draft", "")[:50000],
+                "history": [
+                    {"timestamp": h["timestamp"], "content": h["content"][:50000]}
+                    for h in ver.get("history", [])
+                ],
+            }
+
+        data_bytes = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+        media = MediaIoBaseUpload(io.BytesIO(data_bytes), mimetype="application/json", resumable=False)
+
+        # Buscar si ya existe el archivo en Drive root
+        query = (
+            f"name='{_VERSIONS_FILENAME}' and "
+            f"'{drive_root_id}' in parents and trashed=false"
+        )
+        results = service.files().list(
+            q=query, fields="files(id)",
+            supportsAllDrives=True, includeItemsFromAllDrives=True
+        ).execute()
+        existing = results.get("files", [])
+
+        if existing:
+            service.files().update(
+                fileId=existing[0]["id"],
+                media_body=media
+            ).execute()
+        else:
+            service.files().create(
+                body={"name": _VERSIONS_FILENAME, "parents": [drive_root_id]},
+                media_body=media,
+                fields="id",
+                supportsAllDrives=True
+            ).execute()
+        return True
+    except Exception as e:
+        import logging
+        logging.getLogger("pactora").warning("[versions] No se pudo guardar en Drive: %s", e)
+        return False
+
+
+def _load_versions_from_drive() -> bool:
+    """Carga doc_versions desde Drive root si existe el archivo. Retorna True si cargó algo."""
+    drive_root_id = st.session_state.get("drive_root_id", "")
+    if not drive_root_id:
+        return False
+    if st.session_state.get("_versions_loaded_from_drive"):
+        return False  # ya se cargó en esta sesión
+    try:
+        from utils.auth_helper import get_drive_service
+        service = get_drive_service()
+        if not service:
+            return False
+
+        query = (
+            f"name='{_VERSIONS_FILENAME}' and "
+            f"'{drive_root_id}' in parents and trashed=false"
+        )
+        results = service.files().list(
+            q=query, fields="files(id)",
+            supportsAllDrives=True, includeItemsFromAllDrives=True
+        ).execute()
+        found = results.get("files", [])
+        if not found:
+            return False
+
+        from utils.drive_manager import _do_download
+        bio = _do_download(service, found[0]["id"])
+        payload = json.loads(bio.read().decode("utf-8"))
+
+        loaded = 0
+        for doc_name, ver in payload.items():
+            if doc_name not in st.session_state.doc_versions:
+                st.session_state.doc_versions[doc_name] = ver
+                loaded += 1
+            else:
+                # Fusionar historial — añadir versiones que no estén ya
+                existing_ts = {h["timestamp"] for h in st.session_state.doc_versions[doc_name].get("history", [])}
+                for h in ver.get("history", []):
+                    if h["timestamp"] not in existing_ts:
+                        st.session_state.doc_versions[doc_name]["history"].append(h)
+
+        st.session_state["_versions_loaded_from_drive"] = True
+        return loaded > 0
+    except Exception as e:
+        import logging
+        logging.getLogger("pactora").warning("[versions] No se pudo cargar desde Drive: %s", e)
+        return False
 
 apply_styles()
 init_session_state()
@@ -374,6 +483,16 @@ with tab_editor:
             "Usa **Restaurar original** para deshacer todos los cambios."
         )
 
+    # Importar borrador generado desde Plantillas (si se usó "Abrir en Editor")
+    if st.session_state.get("draft_content") and st.session_state.get("draft_filename"):
+        draft_fn = st.session_state.pop("draft_filename")
+        draft_ct = st.session_state.pop("draft_content")
+        if draft_fn not in st.session_state.doc_versions:
+            st.session_state.doc_versions[draft_fn] = {
+                "original": draft_ct, "draft": draft_ct, "history": []
+            }
+            st.toast(f"Borrador '{draft_fn}' cargado desde Plantillas.", icon="✅")
+
     if not st.session_state.doc_versions:
         st.info("Carga un contrato en **Cargar Contrato** para comenzar a editar.")
     else:
@@ -401,14 +520,16 @@ with tab_editor:
 
         col_save, col_reset, col_export = st.columns(3)
         with col_save:
-            if st.button("💾 Guardar versión", use_container_width=True):
+            if st.button("💾 Guardar versión", use_container_width=True, key="btn_save_ver"):
                 ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
                 ver["history"].append({"timestamp": ts, "content": ver["draft"]})
                 ver["draft"] = new_draft
-                st.success(f"Versión guardada — {ts}")
+                saved_to_drive = _save_versions_to_drive()
+                drive_note = " · guardado en Drive ☁️" if saved_to_drive else ""
+                st.toast(f"Versión guardada — {ts}{drive_note}", icon="💾")
                 st.rerun()
         with col_reset:
-            if st.button("↩ Restaurar original", use_container_width=True):
+            if st.button("↩ Restaurar original", use_container_width=True, key="btn_reset_ver"):
                 ver["draft"] = ver["original"]
                 st.rerun()
         with col_export:
@@ -417,18 +538,71 @@ with tab_editor:
                 data=new_draft.encode("utf-8"),
                 file_name=f"BORRADOR_{doc_sel.rsplit('.', 1)[0]}.txt",
                 mime="text/plain",
-                use_container_width=True
+                use_container_width=True,
+                key="btn_export_draft"
             )
 
-        # Contador de cambios
-        orig_words = set(ver["original"].split())
-        draft_words = set(new_draft.split())
-        added = len(draft_words - orig_words)
-        removed = len(orig_words - draft_words)
-        if added or removed:
-            st.caption(f"Cambios: **+{added}** palabras añadidas, **-{removed}** eliminadas respecto al original")
+        # ─── Diff visual línea a línea ────────────────────────────────────────
+        orig_lines = ver["original"].splitlines()
+        draft_lines = new_draft.splitlines()
+        diff_lines = list(difflib.unified_diff(
+            orig_lines, draft_lines,
+            fromfile="Original", tofile="Borrador",
+            lineterm="", n=1
+        ))
+
+        if not diff_lines:
+            st.caption("Sin cambios respecto al original.")
         else:
-            st.caption("Sin cambios respecto al original")
+            # Estadísticas rápidas
+            added_lines = sum(1 for l in diff_lines if l.startswith("+") and not l.startswith("+++"))
+            removed_lines = sum(1 for l in diff_lines if l.startswith("-") and not l.startswith("---"))
+            st.caption(
+                f"Cambios: "
+                f"**+{added_lines}** línea(s) añadida(s) · "
+                f"**-{removed_lines}** línea(s) eliminada(s)"
+            )
+            with st.expander("Ver diff detallado (Original → Borrador)", expanded=False):
+                html_rows = []
+                for line in diff_lines:
+                    esc = line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                    if line.startswith("+") and not line.startswith("+++"):
+                        html_rows.append(
+                            f'<div style="background:#e8f5e9;color:#1b5e20;'
+                            f'font-family:monospace;font-size:12px;padding:1px 8px;'
+                            f'white-space:pre-wrap;">{esc}</div>'
+                        )
+                    elif line.startswith("-") and not line.startswith("---"):
+                        html_rows.append(
+                            f'<div style="background:#ffebee;color:#b71c1c;'
+                            f'font-family:monospace;font-size:12px;padding:1px 8px;'
+                            f'white-space:pre-wrap;">{esc}</div>'
+                        )
+                    elif line.startswith("@@"):
+                        html_rows.append(
+                            f'<div style="background:#e3f2fd;color:#0d47a1;'
+                            f'font-family:monospace;font-size:12px;padding:1px 8px;">{esc}</div>'
+                        )
+                    else:
+                        html_rows.append(
+                            f'<div style="font-family:monospace;font-size:12px;'
+                            f'padding:1px 8px;color:#555;white-space:pre-wrap;">{esc}</div>'
+                        )
+                st.markdown(
+                    '<div style="border:1px solid #e0e0e0;border-radius:8px;'
+                    'overflow-y:auto;max-height:380px;">'
+                    + "".join(html_rows) + "</div>",
+                    unsafe_allow_html=True
+                )
+                # Exportar diff como parche unificado
+                diff_text = "\n".join(diff_lines)
+                st.download_button(
+                    "⬇ Exportar diff (.patch)",
+                    data=diff_text.encode("utf-8"),
+                    file_name=f"diff_{doc_sel.rsplit('.', 1)[0]}_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.patch",
+                    mime="text/plain",
+                    key="btn_export_diff"
+                )
 
 # ─── HISTORIAL ────────────────────────────────────────────────────────────────
 with tab_historial:
@@ -437,25 +611,97 @@ with tab_historial:
     with hrow[1].popover("ℹ️"):
         st.markdown(
             "Muestra todas las versiones guardadas de cada contrato editado. "
-            "Puedes restaurar cualquier versión anterior haciendo clic en **Restaurar**."
+            "Puedes restaurar cualquier versión anterior o comparar dos versiones. "
+            "Las versiones se sincronizan automáticamente en Google Drive si está conectado."
         )
+
+    # Auto-cargar versiones desde Drive (solo una vez por sesión)
+    if st.session_state.get("drive_root_id") and not st.session_state.get("_versions_loaded_from_drive"):
+        with st.spinner("Sincronizando versiones desde Drive..."):
+            loaded = _load_versions_from_drive()
+        if loaded:
+            st.toast("Versiones restauradas desde Drive ☁️", icon="📂")
+
+    # Botón manual de sync
+    sync_col, _ = st.columns([2, 8])
+    with sync_col:
+        if st.session_state.get("drive_root_id"):
+            if st.button("☁️ Sincronizar con Drive", use_container_width=True, key="btn_sync_versions"):
+                saved = _save_versions_to_drive()
+                st.toast("Versiones guardadas en Drive ☁️" if saved else "No se pudo sincronizar con Drive", icon="☁️" if saved else "⚠️")
 
     has_versions = any(v.get("history") for v in st.session_state.doc_versions.values())
     if not has_versions:
-        st.info("No hay versiones guardadas. Edita un contrato y guarda una versión para verla aquí.")
+        st.markdown(
+            '<div style="text-align:center;padding:40px;color:#999;">'
+            '<div style="font-size:40px;">🕓</div>'
+            '<div style="font-size:15px;margin-top:8px;">No hay versiones guardadas.</div>'
+            '<div style="font-size:13px;margin-top:4px;">Edita un contrato en el <b>Editor</b> '
+            'y presiona "Guardar versión".</div>'
+            '</div>',
+            unsafe_allow_html=True
+        )
     else:
         for doc_name, ver in st.session_state.doc_versions.items():
-            if ver.get("history"):
-                st.markdown(f"#### 📝 {doc_name}")
-                for i, snap in enumerate(reversed(ver["history"])):
-                    with st.expander(
-                        f"Versión {len(ver['history']) - i} — {snap['timestamp']}"
-                    ):
-                        st.text(snap["content"][:800] + ("…" if len(snap["content"]) > 800 else ""))
-                        if st.button(
-                            "↩ Restaurar esta versión",
-                            key=f"restore_{doc_name}_{i}"
-                        ):
-                            ver["draft"] = snap["content"]
-                            st.success("Versión restaurada. Ve al Editor para continuar.")
-                            st.rerun()
+            history = ver.get("history", [])
+            if not history:
+                continue
+            st.markdown(f"#### 📝 {doc_name}")
+            st.caption(f"{len(history)} versión(es) guardada(s)")
+
+            for i, snap in enumerate(reversed(history)):
+                ver_num = len(history) - i
+                with st.expander(f"Versión {ver_num} — {snap['timestamp']}"):
+                    col_prev, col_diff = st.columns([3, 2])
+                    with col_prev:
+                        st.text_area(
+                            f"snap_prev_{doc_name}_{i}",
+                            value=snap["content"][:1200] + ("…" if len(snap["content"]) > 1200 else ""),
+                            height=200, disabled=True, label_visibility="collapsed"
+                        )
+                    with col_diff:
+                        # Diff vs versión anterior (o vs original si es v1)
+                        if i < len(history) - 1:
+                            prev_snap = history[len(history) - i - 2]
+                            prev_label = f"v{ver_num - 1}"
+                            prev_content = prev_snap["content"]
+                        else:
+                            prev_label = "original"
+                            prev_content = ver.get("original", "")
+
+                        diff_snap = list(difflib.unified_diff(
+                            prev_content.splitlines(),
+                            snap["content"].splitlines(),
+                            fromfile=prev_label, tofile=f"v{ver_num}",
+                            lineterm="", n=1
+                        ))
+                        if diff_snap:
+                            added_s = sum(1 for l in diff_snap if l.startswith("+") and not l.startswith("+++"))
+                            removed_s = sum(1 for l in diff_snap if l.startswith("-") and not l.startswith("---"))
+                            st.markdown(
+                                f'<div style="background:#f5f5f5;border-radius:8px;padding:8px;">'
+                                f'<div style="font-size:12px;color:#666;margin-bottom:6px;">'
+                                f'vs {prev_label}: '
+                                f'<span style="color:#388e3c;">+{added_s}</span> / '
+                                f'<span style="color:#e53935;">-{removed_s}</span> líneas</div>'
+                                + "".join(
+                                    f'<div style="font-family:monospace;font-size:11px;'
+                                    f'padding:1px 4px;white-space:pre-wrap;'
+                                    f'background:{"#e8f5e9" if l.startswith("+") and not l.startswith("+++") else "#ffebee" if l.startswith("-") and not l.startswith("---") else "transparent"};'
+                                    f'color:{"#1b5e20" if l.startswith("+") and not l.startswith("+++") else "#b71c1c" if l.startswith("-") and not l.startswith("---") else "#555"};">'
+                                    f'{l.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")}</div>'
+                                    for l in diff_snap[:30]
+                                )
+                                + ("…" if len(diff_snap) > 30 else "")
+                                + "</div>",
+                                unsafe_allow_html=True
+                            )
+                        else:
+                            st.caption(f"Sin cambios vs {prev_label}")
+
+                    if st.button("↩ Restaurar esta versión", key=f"restore_{doc_name}_{i}"):
+                        ver["draft"] = snap["content"]
+                        st.toast("Versión restaurada. Ve al Editor para continuar.", icon="✅")
+                        st.rerun()
+
+            st.divider()
