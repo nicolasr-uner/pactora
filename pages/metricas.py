@@ -26,11 +26,35 @@ RISK_KEYWORDS = {
 }
 
 TIPO_MAP = {
+    # Contratos energéticos
     "ppa": "PPA", "power purchase": "PPA",
     "epc": "EPC", "ingeniería, procura": "EPC",
     "o&m": "O&M", "operación y mantenimiento": "O&M", "operacion y mantenimiento": "O&M",
     "nda": "NDA", "confidencialidad": "NDA",
     "cesion": "Cesión", "cesión": "Cesión",
+    "arriendo": "Arriendo", "arrendamiento": "Arriendo",
+    "fiducia": "Fiducia", "fideicomiso": "Fiducia",
+    "frontera": "Rep. Frontera",
+    # Documentos corporativos
+    "acta": "Acta", "actas": "Acta",
+    "asamblea": "Acta", "junta directiva": "Acta", "junta de socios": "Acta",
+    "libro de actas": "Registro", "libro de registro": "Registro", "libro registro": "Registro",
+    "estatuto": "Estatutos", "estatutos": "Estatutos", "enmienda": "Estatutos",
+    "poder": "Poder", "mandato": "Poder",
+    "contrato": "Contrato", "convenio": "Convenio",
+    "fiel copia": "Acta",
+}
+
+# Keywords para documentos corporativos (actas, estatutos, registros)
+ACTA_KEYWORDS = {
+    "Quórum / Asistentes": ["quórum", "quorum", "asistentes", "asistieron", "presentes"],
+    "Resoluciones": ["resolvió", "aprobó", "aprobaron", "acordó", "decidió", "resolucion", "resolución"],
+    "Votaciones": ["votos a favor", "unanimidad", "aprobado por", "votación", "votacion"],
+    "Inscripción": ["inscripción", "inscripcion", "registrado", "matrícula", "matricula", "número inscripción"],
+    "Representantes": ["representante legal", "presidente", "secretario", "revisor fiscal"],
+    "Capital / Acciones": ["capital social", "acciones", "cuotas", "patrimonio", "capital autorizado"],
+    "Decisiones clave": ["reforma", "modificación", "modificacion", "aprobación", "aprobacion", "nombramiento"],
+    "Entidades": ["cámara de comercio", "camara de comercio", "superintendencia", "notaría", "notaria"],
 }
 
 
@@ -110,7 +134,11 @@ def _extract_parties(text: str) -> list[str]:
     return found[:6]
 
 
-def _risk_level(keyword_counts):
+def _risk_level(keyword_counts, tipo="Otro"):
+    # Documentos corporativos no tienen "riesgo contractual" en el sentido clásico
+    _CORP_TYPES = {"Acta", "Registro", "Estatutos", "Poder"}
+    if tipo in _CORP_TYPES:
+        return "VERDE", "#388e3c"
     total = sum(keyword_counts.values())
     high_risk = keyword_counts.get("Penalidades", 0) + keyword_counts.get("Terminación anticipada", 0)
     if high_risk == 0 and total < 3:
@@ -118,6 +146,35 @@ def _risk_level(keyword_counts):
     if high_risk >= 3 or total >= 10:
         return "ROJO", "#e53935"
     return "AMARILLO", "#f57c00"
+
+
+def _extract_dates_from_text(text: str) -> list[str]:
+    """Extrae fechas del texto. Retorna lista de strings (máx. 6)."""
+    found = []
+    patterns = [
+        r'\b\d{1,2}\s+de\s+(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\s+de\s+\d{4}\b',
+        r'\b\d{1,2}/\d{1,2}/\d{4}\b',
+        r'\b\d{4}-\d{2}-\d{2}\b',
+    ]
+    for pat in patterns:
+        for m in re.finditer(pat, text, re.IGNORECASE):
+            val = m.group(0).strip()
+            if val not in found:
+                found.append(val)
+    return found[:6]
+
+
+def _extract_entities(text: str) -> list[str]:
+    """Extrae entidades/organizaciones mencionadas (patrones S.A.S, S.A., E.S.P., Ltda.)."""
+    found = []
+    for m in re.finditer(
+        r'[A-ZÁÉÍÓÚÑ][A-Za-záéíóúñ\s]+(?:S\.A\.S?|E\.S\.P\.|S\.A\.|Ltda\.|S\.C\.A\.|E\.U\.)',
+        text
+    ):
+        val = m.group(0).strip()
+        if val and len(val) > 4 and val not in found:
+            found.append(val)
+    return found[:6]
 
 
 # ─── Obtener datos de contratos ────────────────────────────────────────────────
@@ -135,6 +192,8 @@ with hrow[1].popover("ℹ️"):
     )
 
 # Calcular métricas
+_CORP_TYPES = {"Acta", "Registro", "Estatutos", "Poder"}
+
 contract_data = []
 for src in sources:
     text = _get_full_text(src)
@@ -142,15 +201,21 @@ for src in sources:
     pages_est = max(1, words // 350)
     tipo = _guess_tipo(src, text)
     ext = src.lower().split(".")[-1] if "." in src else "?"
+    is_corp = tipo in _CORP_TYPES
 
-    keyword_counts = {}
     text_lower = text.lower()
-    for cat, kws in RISK_KEYWORDS.items():
-        keyword_counts[cat] = sum(text_lower.count(kw) for kw in kws)
+    # Usar keywords apropiadas según el tipo de documento
+    kw_source = ACTA_KEYWORDS if is_corp else RISK_KEYWORDS
+    keyword_counts = {
+        cat: sum(text_lower.count(kw) for kw in kws)
+        for cat, kws in kw_source.items()
+    }
 
-    risk, risk_color = _risk_level(keyword_counts)
+    risk, risk_color = _risk_level(keyword_counts, tipo)
     amounts = _extract_amounts(text)
     parties = _extract_parties(text)
+    dates = _extract_dates_from_text(text) if is_corp else []
+    entities = _extract_entities(text) if is_corp else []
     contract_data.append({
         "nombre": src,
         "tipo": tipo,
@@ -158,10 +223,13 @@ for src in sources:
         "words": words,
         "pages": pages_est,
         "keywords": keyword_counts,
+        "is_corp": is_corp,
         "risk": risk,
         "risk_color": risk_color,
         "amounts": amounts,
         "parties": parties,
+        "dates": dates,
+        "entities": entities,
     })
 
 total_words = sum(c["words"] for c in contract_data)
@@ -288,7 +356,8 @@ for c in contract_data:
         info_cols[2].markdown(f"**Páginas est.:** {c['pages']}")
         info_cols[3].markdown(f"**Palabras:** {c['words']:,}")
 
-        st.markdown("**Cláusulas detectadas:**")
+        kw_label = "Elementos detectados:" if c["is_corp"] else "Cláusulas detectadas:"
+        st.markdown(f"**{kw_label}**")
         kw_found = {k: v for k, v in c["keywords"].items() if v > 0}
         if kw_found:
             kw_cols = st.columns(min(4, len(kw_found)))
@@ -302,20 +371,45 @@ for c in contract_data:
                     unsafe_allow_html=True
                 )
         else:
-            st.caption("No se detectaron cláusulas clave. El texto puede ser escaso.")
+            st.caption("No se detectaron elementos clave. El texto puede ser escaso o no procesado.")
 
-        _risk_note = ('✨ Usa Análisis Legal → Abrir → Analizar riesgos con IA.' if LLM_AVAILABLE else 'Activa Gemini para análisis semántico.')
-        st.markdown(
-            f'<div style="padding:8px;border-left:4px solid {color};background:white;'
-            f'border-radius:0 6px 6px 0;margin-top:8px;">'
-            f'<span style="font-weight:700;color:{color};">Nivel de riesgo: {c["risk"]}</span>'
-            f'<div style="font-size:11px;color:#888;margin-top:2px;">'
-            f'Calculado por frecuencia de keywords. {_risk_note}'
-            f'</div></div>',
-            unsafe_allow_html=True
-        )
+        if not c["is_corp"]:
+            _risk_note = ('✨ Usa Biblioteca → Analizar riesgos con IA.' if LLM_AVAILABLE else 'Activa Gemini para análisis semántico.')
+            st.markdown(
+                f'<div style="padding:8px;border-left:4px solid {color};background:white;'
+                f'border-radius:0 6px 6px 0;margin-top:8px;">'
+                f'<span style="font-weight:700;color:{color};">Nivel de riesgo: {c["risk"]}</span>'
+                f'<div style="font-size:11px;color:#888;margin-top:2px;">'
+                f'Calculado por frecuencia de keywords. {_risk_note}'
+                f'</div></div>',
+                unsafe_allow_html=True
+            )
 
-        # Montos extraídos
+        # Fechas detectadas (actas/corp)
+        if c.get("dates"):
+            st.markdown("**Fechas detectadas:**")
+            st.markdown(
+                " &nbsp;·&nbsp; ".join(
+                    f'<code style="background:#f3e5f5;color:#4a148c;padding:2px 6px;'
+                    f'border-radius:4px;">📅 {d}</code>'
+                    for d in c["dates"]
+                ),
+                unsafe_allow_html=True
+            )
+
+        # Entidades mencionadas (actas/corp)
+        if c.get("entities"):
+            st.markdown("**Entidades mencionadas:**")
+            st.markdown(
+                " &nbsp;·&nbsp; ".join(
+                    f'<span style="background:#e8f5e9;color:#1b5e20;padding:2px 8px;'
+                    f'border-radius:4px;font-size:12px;">🏢 {e}</span>'
+                    for e in c["entities"]
+                ),
+                unsafe_allow_html=True
+            )
+
+        # Montos extraídos (contratos)
         if c.get("amounts"):
             st.markdown("**Montos detectados:**")
             st.markdown(
@@ -400,29 +494,54 @@ with col_ins1:
         unsafe_allow_html=True
     )
 
-# Partes únicas en todo el portfolio
+# Partes y entidades únicas
 all_parties = []
+all_entities = []
+all_dates = []
 for c in contract_data:
     for p in c.get("parties", []):
         if p not in all_parties:
             all_parties.append(p)
+    for e in c.get("entities", []):
+        if e not in all_entities:
+            all_entities.append(e)
+    for d in c.get("dates", []):
+        if d not in all_dates:
+            all_dates.append(d)
+
+# Si la mayoría son corporativos, mostrar entidades + fechas en vez de partes
+n_corp = sum(1 for c in contract_data if c["is_corp"])
+show_corp_insights = n_corp > len(contract_data) / 2
 
 with col_ins2:
-    st.markdown(
-        f'<div style="background:#e3f2fd;border-radius:10px;padding:14px;">'
-        f'<div style="font-weight:900;color:#0d47a1;margin-bottom:6px;">👥 Partes identificadas</div>'
-        + (
-            "".join(
-                f'<div style="font-size:12px;color:#1565c0;margin:2px 0;">• {p}</div>'
-                for p in all_parties[:10]
+    if show_corp_insights and all_entities:
+        st.markdown(
+            f'<div style="background:#e8f5e9;border-radius:10px;padding:14px;">'
+            f'<div style="font-weight:900;color:#1b5e20;margin-bottom:6px;">🏢 Entidades mencionadas</div>'
+            + "".join(
+                f'<div style="font-size:12px;color:#2e7d32;margin:2px 0;">• {e}</div>'
+                for e in all_entities[:10]
             )
-            if all_parties else
-            '<div style="font-size:12px;color:#888;">No se identificaron partes explícitas.</div>'
+            + f'<div style="font-size:10px;color:#aaa;margin-top:8px;">{llm_badge}</div>'
+            f'</div>',
+            unsafe_allow_html=True
         )
-        + f'<div style="font-size:10px;color:#aaa;margin-top:8px;">{llm_badge}</div>'
-        f'</div>',
-        unsafe_allow_html=True
-    )
+    else:
+        st.markdown(
+            f'<div style="background:#e3f2fd;border-radius:10px;padding:14px;">'
+            f'<div style="font-weight:900;color:#0d47a1;margin-bottom:6px;">👥 Partes identificadas</div>'
+            + (
+                "".join(
+                    f'<div style="font-size:12px;color:#1565c0;margin:2px 0;">• {p}</div>'
+                    for p in all_parties[:10]
+                )
+                if all_parties else
+                '<div style="font-size:12px;color:#888;">No se identificaron partes explícitas.</div>'
+            )
+            + f'<div style="font-size:10px;color:#aaa;margin-top:8px;">{llm_badge}</div>'
+            f'</div>',
+            unsafe_allow_html=True
+        )
 
 # Distribución de tipos
 with col_ins3:
