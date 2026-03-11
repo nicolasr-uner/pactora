@@ -42,7 +42,10 @@ def get_drive_service_sa():
             )
         creds = service_account.Credentials.from_service_account_info(
             sa_dict,
-            scopes=['https://www.googleapis.com/auth/drive.readonly']
+            scopes=[
+                'https://www.googleapis.com/auth/drive.readonly',
+                'https://www.googleapis.com/auth/drive.file',
+            ]
         )
         return build('drive', 'v3', credentials=creds)
     except Exception as e:

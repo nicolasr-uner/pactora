@@ -3,7 +3,7 @@ import streamlit as st
 import io
 import datetime
 import difflib
-from utils.shared import apply_styles, page_header, init_session_state, api_status_banner
+from utils.shared import apply_styles, page_header, init_session_state, api_status_banner, render_document_preview
 
 # ─── Persistencia de versiones en Drive ───────────────────────────────────────
 _VERSIONS_FILENAME = "_pactora_versions.json"
@@ -182,8 +182,9 @@ def _render_risk_result(risk: dict):
             )
 
 # ─── Tabs ─────────────────────────────────────────────────────────────────────
-tab_biblioteca, tab_upload, tab_compare, tab_editor, tab_historial = st.tabs([
+tab_biblioteca, tab_dashboard, tab_upload, tab_compare, tab_editor, tab_historial = st.tabs([
     "📚 Biblioteca",
+    "📊 Dashboard",
     "📤 Cargar Contrato",
     "🔀 Comparar",
     "✏️ Editor",
@@ -223,38 +224,7 @@ with tab_biblioteca:
         # ── Panel izquierdo: documento ─────────────────────────────────────────
         with col_doc:
             st.markdown("##### Documento")
-            cached_pdf = st.session_state.get("_file_cache", {}).get(selected_src)
-            if cached_pdf and selected_src.lower().endswith(".pdf"):
-                import base64 as _b64
-                b64_pdf = _b64.b64encode(cached_pdf).decode()
-                st.markdown(
-                    f'<iframe src="data:application/pdf;base64,{b64_pdf}" '
-                    f'width="100%" height="660" '
-                    f'style="border:1px solid #e0d4f7;border-radius:8px;"></iframe>',
-                    unsafe_allow_html=True
-                )
-                st.download_button(
-                    "⬇ Descargar PDF",
-                    data=cached_pdf, file_name=selected_src,
-                    mime="application/pdf", key="dl_pdf_bib"
-                )
-            else:
-                chunks = _get_chunks_for(selected_src)
-                if chunks:
-                    full_text = "\n\n─────────────────────\n\n".join(chunks)
-                    st.text_area(
-                        "", value=full_text, height=660,
-                        disabled=True, label_visibility="collapsed",
-                        key="bib_doc_text"
-                    )
-                    st.download_button(
-                        "⬇ Exportar texto",
-                        data=full_text.encode("utf-8"),
-                        file_name=f"{selected_src}_texto.txt",
-                        mime="text/plain", key="dl_txt_bib"
-                    )
-                else:
-                    st.info("Sin texto disponible para previsualizar.")
+            render_document_preview(selected_src, height=660)
 
         # ── Panel derecho: chat contextualizado ────────────────────────────────
         with col_chat:
@@ -372,6 +342,136 @@ with tab_biblioteca:
                     st.toast(f"'{src[:40]}' preseleccionado", icon="✅")
 
                 st.divider()
+
+# ─── DASHBOARD ────────────────────────────────────────────────────────────────
+with tab_dashboard:
+    import pandas as _pd_dash
+
+    hrow = st.columns([9, 1])
+    hrow[0].markdown("#### Dashboard de Contratos")
+    with hrow[1].popover("ℹ️"):
+        st.markdown(
+            "Tabla filtrable con todos los contratos indexados. "
+            "Filtra por tipo, formato o búsqueda de texto. "
+            "Haz clic en **Abrir** para ir al detalle en Biblioteca."
+        )
+
+    _dash_stats = st.session_state.chatbot.get_stats()
+    _dash_sources = _dash_stats.get("sources", [])
+
+    if not _dash_sources:
+        st.info("No hay contratos indexados. Usa **Cargar Contrato** o ve a **Ajustes**.")
+    else:
+        # Construir tabla de contratos
+        _dash_rows = []
+        _risk_cache = {}  # Reutilizar análisis de riesgo ya cacheados en session
+        for src in _dash_sources:
+            ext = src.lower().rsplit(".", 1)[-1] if "." in src else "?"
+            tipo = _detect_contract_type(src)
+            risk_key = f"risk_{src}"
+            risk_data = st.session_state.get(risk_key)
+            risk_nivel = risk_data.get("Nivel", "—").upper() if risk_data else "—"
+            risk_score = risk_data.get("compliance_score", "—") if risk_data else "—"
+            # Leer metadata del vectorstore (drive_id, indexed_at)
+            indexed_at = "—"
+            try:
+                from utils.shared import _load_index_metadata
+                _imeta = _load_index_metadata()
+                if src in _imeta:
+                    dt_str = _imeta[src].get("indexed_at", "")
+                    if dt_str:
+                        indexed_at = dt_str[:10]  # YYYY-MM-DD
+            except Exception:
+                pass
+            _dash_rows.append({
+                "Contrato": src,
+                "Tipo": tipo,
+                "Formato": ext.upper(),
+                "Riesgo": risk_nivel,
+                "Score": risk_score,
+                "Indexado": indexed_at,
+            })
+
+        df_dash = _pd_dash.DataFrame(_dash_rows)
+
+        # ── Filtros ─────────────────────────────────────────────────────────
+        fcols = st.columns([3, 2, 2, 3])
+        with fcols[0]:
+            _search_d = st.text_input("Buscar", placeholder="🔍 Nombre del contrato...",
+                                      label_visibility="collapsed", key="dash_search")
+        with fcols[1]:
+            _tipos_uniq = ["Todos"] + sorted(df_dash["Tipo"].unique().tolist())
+            _tipo_filter = st.selectbox("Tipo", _tipos_uniq, key="dash_tipo")
+        with fcols[2]:
+            _fmts_uniq = ["Todos"] + sorted(df_dash["Formato"].unique().tolist())
+            _fmt_filter = st.selectbox("Formato", _fmts_uniq, key="dash_fmt")
+        with fcols[3]:
+            _risk_opts = ["Todos", "ROJO", "AMARILLO", "VERDE", "—"]
+            _risk_filter = st.selectbox("Riesgo", _risk_opts, key="dash_risk")
+
+        # Aplicar filtros
+        df_filt = df_dash.copy()
+        if _search_d:
+            df_filt = df_filt[df_filt["Contrato"].str.contains(_search_d, case=False, na=False)]
+        if _tipo_filter != "Todos":
+            df_filt = df_filt[df_filt["Tipo"] == _tipo_filter]
+        if _fmt_filter != "Todos":
+            df_filt = df_filt[df_filt["Formato"] == _fmt_filter]
+        if _risk_filter != "Todos":
+            df_filt = df_filt[df_filt["Riesgo"] == _risk_filter]
+
+        st.caption(f"{len(df_filt)} contrato(s) — {len(_dash_sources)} total")
+
+        # ── Tabla con botón Abrir ────────────────────────────────────────────
+        RISK_EMOJI = {"ROJO": "🔴", "AMARILLO": "🟡", "VERDE": "🟢"}
+        FMT_ICON = {"PDF": "📄", "DOCX": "📝", "XLSX": "📊", "PPTX": "📑",
+                    "PNG": "🖼", "JPG": "🖼", "CSV": "📋", "TXT": "📃"}
+
+        for _, row in df_filt.iterrows():
+            dcols = st.columns([5, 1, 1, 1, 1, 1])
+            fmt_icon = FMT_ICON.get(row["Formato"], "📁")
+            risk_emoji = RISK_EMOJI.get(row["Riesgo"], "⚪")
+            dcols[0].markdown(f"{fmt_icon} **{row['Contrato']}**")
+            dcols[1].markdown(f'<div style="font-size:12px;color:#555;">{row["Tipo"]}</div>', unsafe_allow_html=True)
+            dcols[2].markdown(f'<div style="font-size:12px;color:#555;">{row["Formato"]}</div>', unsafe_allow_html=True)
+            dcols[3].markdown(f'<div style="text-align:center;">{risk_emoji}</div>', unsafe_allow_html=True)
+            dcols[4].markdown(f'<div style="font-size:11px;color:#888;">{row["Indexado"]}</div>', unsafe_allow_html=True)
+            if dcols[5].button("Abrir", key=f"dash_open_{row['Contrato']}", use_container_width=True):
+                st.session_state["library_selected"] = row["Contrato"]
+                st.session_state["sidebar_chat_filter"] = {"source": row["Contrato"]}
+                st.session_state["sidebar_chat_title"] = row["Contrato"]
+                # Navegar a la pestaña Biblioteca seleccionando el documento
+                st.toast(f"Abriendo '{row['Contrato'][:40]}' en Biblioteca", icon="📚")
+                st.rerun()
+            st.divider()
+
+        # ── KPIs resumen ─────────────────────────────────────────────────────
+        st.markdown("---")
+        kpi_cols = st.columns(4)
+        kpi_cols[0].metric("Total contratos", len(_dash_sources))
+        tipos_count = df_dash["Tipo"].value_counts()
+        kpi_cols[1].metric("Tipos distintos", len(tipos_count))
+        formatos_count = df_dash["Formato"].value_counts()
+        kpi_cols[2].metric("Formatos distintos", len(formatos_count))
+        analizados = df_dash[df_dash["Riesgo"] != "—"].shape[0]
+        kpi_cols[3].metric("Con análisis de riesgo", analizados)
+
+        # Desglose por formato
+        if len(formatos_count) > 1:
+            with st.expander("Desglose por formato"):
+                fmt_html = '<div style="display:flex;flex-wrap:wrap;gap:8px;">'
+                for fmt, cnt in formatos_count.items():
+                    icon = FMT_ICON.get(fmt, "📁")
+                    fmt_html += (
+                        f'<div style="background:#f5f0ff;border-radius:8px;padding:8px 14px;'
+                        f'text-align:center;min-width:70px;">'
+                        f'<div style="font-size:20px;">{icon}</div>'
+                        f'<div style="font-weight:700;color:#915BD8;">{cnt}</div>'
+                        f'<div style="font-size:11px;color:#555;">{fmt}</div></div>'
+                    )
+                fmt_html += "</div>"
+                st.markdown(fmt_html, unsafe_allow_html=True)
+
 
 # ─── CARGAR CONTRATO ──────────────────────────────────────────────────────────
 with tab_upload:

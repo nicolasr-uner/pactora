@@ -1,10 +1,9 @@
 import streamlit as st
-from utils.shared import apply_styles, page_header, init_session_state, api_status_banner
+from utils.shared import apply_styles, page_header, init_session_state
 
 apply_styles()
 init_session_state()
 page_header()
-api_status_banner()
 
 st.markdown("## Ajustes")
 st.caption("Configura tu workspace: carga contratos, gestiona el índice y conecta integraciones externas.")
@@ -46,12 +45,34 @@ with st.expander("🔧 Diagnóstico del sistema", expanded=False):
     with diag_cols[1]:
         # Librerías
         for lib, name in [("pypdf", "pypdf"), ("PyPDF2", "PyPDF2"), ("docx", "python-docx"),
-                          ("chromadb", "chromadb"), ("langchain_community", "langchain-community")]:
+                          ("pptx", "python-pptx"), ("chromadb", "chromadb"),
+                          ("langchain_community", "langchain-community"),
+                          ("fitz", "pymupdf"), ("openpyxl", "openpyxl")]:
             try:
                 __import__(lib)
                 st.write(f"✅ {name}")
             except ImportError as _ie:
                 st.write(f"❌ {name}: {_ie}")
+
+    # Metadata JSON de indexación
+    try:
+        from utils.shared import _load_index_metadata
+        _imeta = _load_index_metadata()
+        if _imeta:
+            with st.expander(f"📋 Metadata de indexación ({len(_imeta)} entradas)", expanded=False):
+                import pandas as _pd_diag
+                _meta_rows = [
+                    {
+                        "Archivo": k,
+                        "Extensión": v.get("ext", "?").upper(),
+                        "Indexado": v.get("indexed_at", "")[:10],
+                        "Drive ID": v.get("drive_id", "")[:20] + "…" if v.get("drive_id") else "—",
+                    }
+                    for k, v in _imeta.items()
+                ]
+                st.dataframe(_pd_diag.DataFrame(_meta_rows), use_container_width=True, hide_index=True)
+    except Exception:
+        pass
 
     if st.button("🧪 Test embeddings", key="diag_emb"):
         try:

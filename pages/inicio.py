@@ -259,6 +259,35 @@ m3.markdown(
     unsafe_allow_html=True
 )
 
+# Desglose por formato si hay metadata disponible
+try:
+    from utils.shared import _load_index_metadata, _startup_index_progress
+    _imeta = _load_index_metadata()
+    # Combinar con file_counts del thread (puede tener más datos frescos)
+    _fc = dict(_startup_index_progress.get("file_counts", {}))
+    for _fname, _fdata in _imeta.items():
+        _ext = _fdata.get("ext", "")
+        if _ext and _ext not in _fc:
+            _fc[_ext] = _fc.get(_ext, 0) + 1
+    if _fc and stats["total_docs"] > 0:
+        _FMT_ICON = {"pdf": "📄", "docx": "📝", "xlsx": "📊", "pptx": "📑",
+                     "png": "🖼", "jpg": "🖼", "csv": "📋", "txt": "📃"}
+        _fc_html = '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;">'
+        for _ext, _cnt in sorted(_fc.items(), key=lambda x: -x[1]):
+            _icon = _FMT_ICON.get(_ext.lower(), "📁")
+            _fc_html += (
+                f'<div style="background:#f5f0ff;border-radius:8px;padding:6px 12px;'
+                f'text-align:center;">'
+                f'<span style="font-size:16px;">{_icon}</span> '
+                f'<b style="color:#915BD8;">{_cnt}</b> '
+                f'<span style="font-size:11px;color:#666;">{_ext.upper()}</span>'
+                f'</div>'
+            )
+        _fc_html += '</div>'
+        st.markdown(_fc_html, unsafe_allow_html=True)
+except Exception:
+    pass
+
 if stats["sources"]:
     with st.expander(f"Ver contratos disponibles ({len(stats['sources'])})"):
         for s in stats["sources"]:

@@ -54,10 +54,14 @@ LLM_AVAILABLE: bool = bool(GEMINI_API_KEY)
 if LLM_AVAILABLE:
     try:
         from google import genai as _genai_test  # type: ignore  # noqa: F401
+        from google.genai import types as _types_test  # type: ignore  # noqa: F401
         _log.info("[llm_service] google-genai SDK disponible.")
     except Exception as e:
         _log.warning("[llm_service] No se pudo importar google-genai: %s", e)
         LLM_AVAILABLE = False
+
+# Nombre del modelo — fuente única de verdad
+_GEMINI_MODEL = "gemini-2.5-flash"
 
 
 # ---------------------------------------------------------------------------
@@ -117,15 +121,34 @@ def _clean_json_response(text: str) -> str:
 _RETRYABLE_CODES = {429, 500, 502, 503, 504}
 
 
-def _call_gemini(prompt: str, model_name: str = "gemini-2.5-flash", timeout: int = 30) -> str:
+def _call_gemini(
+    prompt: "str | list",
+    model_name: str = _GEMINI_MODEL,
+    system_instruction: Optional[str] = None,
+    timeout: int = 30,
+) -> str:
     """
     Llama a Gemini con retry exponencial (3 intentos: 2s → 4s → 8s).
-    Loguea modelo, longitud del prompt y tiempo de respuesta.
+
+    Args:
+        prompt: String simple o lista de types.Content (para multi-turn).
+        model_name: Modelo Gemini a usar (por defecto _GEMINI_MODEL).
+        system_instruction: Instrucción de sistema separada del prompt de usuario.
+            Se pasa vía GenerateContentConfig, no embebida en el prompt.
+        timeout: Reservado para uso futuro.
+
     Lanza excepción si todos los reintentos fallan.
     """
     from google import genai  # type: ignore
+    from google.genai import types  # type: ignore
 
     client = genai.Client(api_key=GEMINI_API_KEY)
+
+    config = types.GenerateContentConfig(
+        system_instruction=system_instruction,
+    ) if system_instruction else None
+
+    prompt_len = len(prompt) if isinstance(prompt, str) else len(prompt)
     max_attempts = 3
     delays = [2, 4, 8]
 
@@ -133,12 +156,13 @@ def _call_gemini(prompt: str, model_name: str = "gemini-2.5-flash", timeout: int
         t0 = time.time()
         try:
             _log.info(
-                "[llm_service] Gemini call — model=%s prompt_chars=%d attempt=%d",
-                model_name, len(prompt), attempt + 1,
+                "[llm_service] Gemini call — model=%s prompt_len=%d attempt=%d",
+                model_name, prompt_len, attempt + 1,
             )
             response = client.models.generate_content(
                 model=model_name,
                 contents=prompt,
+                config=config,
             )
             elapsed = time.time() - t0
             _log.info(
@@ -148,7 +172,6 @@ def _call_gemini(prompt: str, model_name: str = "gemini-2.5-flash", timeout: int
             return response.text
         except Exception as exc:
             elapsed = time.time() - t0
-            # Detectar si es reintentable por código HTTP
             exc_str = str(exc)
             is_retryable = any(str(c) in exc_str for c in _RETRYABLE_CODES)
             _log.warning(
@@ -286,8 +309,8 @@ def test_gemini_connection() -> Tuple[bool, str]:
     if not LLM_AVAILABLE:
         return False, "GEMINI_API_KEY no configurada"
     try:
-        resp = _call_gemini("Responde exactamente: OK", model_name="gemini-2.5-flash")
-        return True, f"OK — gemini-2.5-flash ({len(resp)} chars)"
+        resp = _call_gemini("Responde exactamente: OK", model_name=_GEMINI_MODEL)
+        return True, f"OK — {_GEMINI_MODEL} ({len(resp)} chars)"
     except Exception as exc:
         return False, str(exc)[:200]
 
@@ -348,6 +371,54 @@ def analyze_risk(text: str, contract_type: str = "General") -> dict:
     return _MOCK_RISKS[seed % len(_MOCK_RISKS)]
 
 
+def build_portfolio_context() -> str:
+    """
+    Genera un bloque de contexto dinámico con el estado actual del portafolio de contratos.
+    Se inyecta en el system prompt de JuanMitaBot para que conozca el portafolio.
+    """
+    try:
+        import streamlit as st
+        cb = st.session_state.get("chatbot")
+        if not cb:
+            return ""
+        stats = cb.get_stats()
+        total = stats.get("total_docs", 0)
+        sources = stats.get("sources", [])
+        if total == 0:
+            return "\nESTADO DEL PORTAFOLIO: Sin contratos indexados actualmente."
+
+        # Clasificar contratos por tipo (detección simple por nombre)
+        _TIPO_KWS = [
+            ("PPA", "PPA"), ("EPC", "EPC"), ("O&M", "O&M"), ("OAM", "O&M"),
+            ("SHA", "SHA"), ("NDA", "NDA"), ("ARRIENDO", "Arriendo"),
+            ("FIDUCIA", "Fiducia"), ("FRONTERA", "Rep. Frontera"),
+        ]
+        def _detect_type(name: str) -> str:
+            u = name.upper()
+            for kw, tipo in _TIPO_KWS:
+                if kw in u:
+                    return tipo
+            return "General"
+
+        type_counts: Dict[str, int] = {}
+        for src in sources:
+            t = _detect_type(src)
+            type_counts[t] = type_counts.get(t, 0) + 1
+
+        type_summary = ", ".join(f"{cnt} {tipo}" for tipo, cnt in sorted(type_counts.items()))
+        src_list = "\n".join(f"  - {s}" for s in sources[:20])
+        more = f"\n  … y {len(sources) - 20} contratos más" if len(sources) > 20 else ""
+
+        return (
+            f"\nESTADO ACTUAL DEL PORTAFOLIO:\n"
+            f"- Total de contratos indexados: {total}\n"
+            f"- Tipos: {type_summary}\n"
+            f"- Contratos disponibles:\n{src_list}{more}\n"
+        )
+    except Exception:
+        return ""
+
+
 def generate_response(
     question: str,
     context: str,
@@ -357,31 +428,48 @@ def generate_response(
     """
     Genera una respuesta en lenguaje natural usando el contexto recuperado por RAG.
 
-    En modo LLM usa Gemini 2.5 Flash con el system prompt de JuanMitaBot.
-    En modo offline retorna None.
+    Usa GenerateContentConfig(system_instruction=...) para separar el system prompt
+    del contenido del usuario, y types.Content con roles nativos para el historial.
 
-    Retorna la respuesta como string, o None si no está disponible.
+    En modo LLM usa Gemini 2.5 Flash. En modo offline retorna None.
     """
     if not LLM_AVAILABLE:
         return None  # type: ignore[return-value]
 
     try:
-        history_text = ""
+        from google.genai import types  # type: ignore
+
+        # Enriquecer system prompt con estado actual del portafolio
+        portfolio_block = build_portfolio_context()
+        effective_system = system_prompt + portfolio_block if portfolio_block else system_prompt
+
+        # Construir historial con roles nativos del SDK (no como texto plano)
+        contents: List[Any] = []
         if history:
             for msg in history[-6:]:  # últimos 6 turnos para no exceder tokens
-                role = "Usuario" if msg.get("role") == "user" else "JuanMitaBot"
-                history_text += f"{role}: {msg.get('content', '')}\n"
+                sdk_role = "user" if msg.get("role") == "user" else "model"
+                contents.append(
+                    types.Content(
+                        role=sdk_role,
+                        parts=[types.Part(text=msg.get("content", ""))],
+                    )
+                )
 
-        prompt = (
-            f"{system_prompt}\n\n"
-            "---\nCONTEXTO DE CONTRATOS RECUPERADO:\n"
+        # Turno actual: contexto RAG + pregunta del usuario
+        user_text = (
+            "CONTEXTO DE CONTRATOS RECUPERADO:\n"
             f"{context}\n\n"
-            "---\n"
-            f"HISTORIAL RECIENTE:\n{history_text}\n"
-            f"Usuario: {question}\n\n"
-            "JuanMitaBot:"
+            f"Pregunta: {question}"
         )
-        return _call_gemini(prompt)
+        contents.append(
+            types.Content(role="user", parts=[types.Part(text=user_text)])
+        )
+
+        # system_instruction va separado en GenerateContentConfig, no en el prompt
+        return _call_gemini(
+            prompt=contents,
+            system_instruction=effective_system,
+        )
     except Exception as e:
         _log.error("[llm_service] generate_response falló tras reintentos: %s", e)
-        return f"⚠️ No pude generar respuesta con IA en este momento. Intenta de nuevo en unos segundos."
+        return "⚠️ No pude generar respuesta con IA en este momento. Intenta de nuevo en unos segundos."

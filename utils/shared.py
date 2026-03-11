@@ -1,4 +1,6 @@
 import os
+import json
+import datetime
 import streamlit as st
 import threading
 import logging
@@ -12,6 +14,29 @@ log = logging.getLogger("pactora")
 
 CHROMADB_BACKUP_FILENAME = "_pactora_chromadb_backup.zip"
 CHROMADB_DIR = "./chroma_db"
+INDEX_METADATA_FILE = "./_pactora_index_metadata.json"
+
+
+# ─── Index metadata helpers ───────────────────────────────────────────────────
+
+def _load_index_metadata() -> dict:
+    """Carga el archivo de metadata de indexación local."""
+    try:
+        if os.path.exists(INDEX_METADATA_FILE):
+            with open(INDEX_METADATA_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception as e:
+        log.warning("[meta] Error cargando metadata: %s", e)
+    return {}
+
+
+def _save_index_metadata(meta: dict):
+    """Guarda el archivo de metadata de indexación local."""
+    try:
+        with open(INDEX_METADATA_FILE, "w", encoding="utf-8") as f:
+            json.dump(meta, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        log.warning("[meta] Error guardando metadata: %s", e)
 
 # ─── Startup indexation — runs once per server process ───────────────────────
 _startup_index_triggered = False
@@ -23,6 +48,7 @@ _startup_index_progress = {
     "indexed": 0,
     "last_file": "",
     "error": "",
+    "file_counts": {},  # {"pdf": 12, "docx": 5, "xlsx": 3, ...}
 }
 
 
@@ -55,8 +81,18 @@ def _restore_chromadb_from_drive(drive_root_id: str) -> bool:
         from utils.drive_manager import _do_download
         zip_io = _do_download(service, file_id)
 
-        with zipfile.ZipFile(zip_io, "r") as zf:
-            zf.extractall(".")
+        # Verificar integridad del ZIP antes de extraer
+        try:
+            with zipfile.ZipFile(zip_io, "r") as zf:
+                bad = zf.testzip()
+                if bad:
+                    log.error("[restore] ZIP corrupto — primer archivo dañado: %s", bad)
+                    return False
+                zip_io.seek(0)
+                zf.extractall(".")
+        except zipfile.BadZipFile as bz:
+            log.error("[restore] ZIP no válido: %s", bz)
+            return False
 
         log.info("[restore] ChromaDB restaurado desde Drive.")
         return True
@@ -143,6 +179,9 @@ def _bg_startup_index(api_key, drive_root_id, drive_api_key):
             prog["error"] = f"Import error: {_ie}"
             return
 
+        # ── Cargar metadata de indexación local ─────────────────────────────
+        index_meta = _load_index_metadata()
+
         # ── Intentar restaurar ChromaDB desde backup de Drive ───────────────
         restored = _restore_chromadb_from_drive(drive_root_id)
         if restored:
@@ -154,13 +193,28 @@ def _bg_startup_index(api_key, drive_root_id, drive_api_key):
                          stats["total_docs"], len(chatbot._indexed_sources))
             except Exception as re:
                 log.warning("[restore] No se pudieron cargar sources: %s", re)
+        else:
+            # Sin backup de ChromaDB — poblar _indexed_sources desde metadata JSON local
+            # para evitar re-indexar archivos cuyo texto ya se descartó (e.g. scanned PDFs)
+            if index_meta:
+                for fname in index_meta:
+                    if fname not in chatbot._indexed_sources:
+                        chatbot._indexed_sources.append(fname)
+                log.info("[restore] _indexed_sources poblados desde metadata JSON: %d entradas",
+                         len(chatbot._indexed_sources))
         # ────────────────────────────────────────────────────────────────────
 
         log.info("Iniciando indexacion de Drive (carpeta: %s)", drive_root_id)
         all_files = get_recursive_files(drive_root_id, api_key=drive_api_key)
         log.info("Archivos encontrados en Drive: %d", len(all_files))
 
-        files_to_index = [f for f in all_files if f["name"] not in chatbot._indexed_sources]
+        # Differential: omitir archivos ya registrados en metadata JSON
+        # (sobrevive reinicios incluso sin backup de ChromaDB)
+        files_to_index = [
+            f for f in all_files
+            if f["name"] not in chatbot._indexed_sources
+            and f["name"] not in index_meta
+        ]
         already = len(all_files) - len(files_to_index)
         if already:
             log.info("Ya indexados previamente: %d archivo(s)", already)
@@ -178,10 +232,17 @@ def _bg_startup_index(api_key, drive_root_id, drive_api_key):
         prog["total"] = len(files_to_index)
         prog["downloaded"] = 0
         prog["indexed"] = 0
+        prog["file_counts"] = {}
 
         # Procesar en lotes de 20 para no saturar memoria con 245 archivos
         BATCH = 20
+        BACKUP_EVERY = 50  # backup parcial cada N documentos indexados
         total_indexed = 0
+
+        def _ext_from_name(name: str) -> str:
+            parts = name.rsplit(".", 1)
+            return parts[-1].lower() if len(parts) > 1 else "otro"
+
         for batch_start in range(0, len(files_to_index), BATCH):
             batch = files_to_index[batch_start: batch_start + BATCH]
             log.info("Lote %d/%d — archivos %d a %d",
@@ -190,7 +251,10 @@ def _bg_startup_index(api_key, drive_root_id, drive_api_key):
 
             docs = []
             with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
-                future_to_file = {ex.submit(download_file_to_io, f["id"], drive_api_key): f for f in batch}
+                future_to_file = {
+                    ex.submit(download_file_to_io, f["id"], drive_api_key, f.get("mimeType")): f
+                    for f in batch
+                }
                 for future in concurrent.futures.as_completed(future_to_file, timeout=120):
                     f = future_to_file[future]
                     try:
@@ -202,6 +266,16 @@ def _bg_startup_index(api_key, drive_root_id, drive_api_key):
                                 # Guarda drive_id en metadata para preview directo
                                 docs.append((txt, f["name"], {"drive_id": f["id"]}))
                                 prog["downloaded"] += 1
+                                # Conteo por extensión
+                                ext = _ext_from_name(f["name"])
+                                prog["file_counts"][ext] = prog["file_counts"].get(ext, 0) + 1
+                                # Registrar en metadata JSON local
+                                index_meta[f["name"]] = {
+                                    "drive_id": f["id"],
+                                    "indexed_at": datetime.datetime.utcnow().isoformat(),
+                                    "size": f.get("size", 0),
+                                    "ext": ext,
+                                }
                                 log.info("OK (%d/%d): %s — %d chars",
                                          prog["downloaded"], prog["total"], f["name"], len(txt))
                             elif txt and txt.startswith("Error"):
@@ -211,7 +285,7 @@ def _bg_startup_index(api_key, drive_root_id, drive_api_key):
                             else:
                                 prog["downloaded"] += 1
                                 prog["error"] = f"{f['name']}: sin texto (PDF escaneado sin OCR)"
-                                log.warning("Sin texto: %s — gemini_key=%s", f["name"], bool(gemini_key))
+                                log.warning("Sin texto: %s", f["name"])
                         else:
                             prog["downloaded"] += 1
                             log.warning("Descarga vacia: %s", f["name"])
@@ -229,6 +303,12 @@ def _bg_startup_index(api_key, drive_root_id, drive_api_key):
                     total_indexed += len(docs)
                     prog["indexed"] = total_indexed
                     log.info("Lote indexado. Acumulado: %d contrato(s).", total_indexed)
+                    # Persistir metadata JSON inmediatamente
+                    _save_index_metadata(index_meta)
+                    # Backup parcial cada BACKUP_EVERY documentos
+                    if total_indexed % BACKUP_EVERY == 0:
+                        log.info("[backup] Backup parcial en checkpoint: %d docs", total_indexed)
+                        _backup_chromadb_to_drive(drive_root_id)
                 else:
                     log.error("Error al indexar lote: %s", ingest_msg)
 
@@ -323,14 +403,21 @@ def apply_styles():
 
 
 def api_status_banner():
-    """Muestra estado del bot y contratos indexados."""
+    """Muestra estado del bot, contratos indexados y desglose por tipo."""
     try:
         try:
             n = st.session_state.chatbot.get_stats()["total_docs"]
         except Exception:
             n = 0
+        counts = _startup_index_progress.get("file_counts", {})
         if n > 0:
-            st.success(f"{n} contrato(s) indexado(s) — JuanMitaBot listo", icon="✅")
+            if counts:
+                counts_str = "  |  ".join(
+                    f"{ext.upper()}: {c}" for ext, c in sorted(counts.items()) if c > 0
+                )
+                st.success(f"✅  {n} contrato(s) indexado(s) — {counts_str} — JuanMitaBot listo")
+            else:
+                st.success(f"{n} contrato(s) indexado(s) — JuanMitaBot listo", icon="✅")
         else:
             st.info("Sin contratos indexados — ve a **Ajustes** para cargar documentos", icon="📄")
     except Exception:
@@ -362,9 +449,15 @@ def _drive_status_widget():
             icon="⚠️"
         )
     elif p["status"] == "complete":
-        # Usar prog["indexed"] que fue verificado por el hilo sobre el chatbot correcto
         count = p["indexed"] if p["indexed"] > 0 else n
-        st.success(f"Drive conectado — {count} contrato(s) indexado(s)", icon="✅")
+        counts = p.get("file_counts", {})
+        if counts:
+            counts_str = "  |  ".join(
+                f"{ext.upper()}: {c}" for ext, c in sorted(counts.items()) if c > 0
+            )
+            st.success(f"Drive conectado — {count} contrato(s)  •  {counts_str}", icon="✅")
+        else:
+            st.success(f"Drive conectado — {count} contrato(s) indexado(s)", icon="✅")
     elif p["status"] == "idle":
         st.info("Drive conectado — iniciando indexacion...", icon="⏳")
     else:
@@ -501,6 +594,133 @@ def juanmitabot_sidebar():
                 st.rerun()
 
 
+def render_document_preview(source_name: str, height: int = 660):
+    """
+    Renderiza previsualización enriquecida para un documento indexado.
+    Orden de intentos:
+      1. PDF bytes en _file_cache (subidos en sesión actual)
+      2. Descarga desde Drive usando drive_id almacenado en metadata de ChromaDB
+      3. Texto extraído de chunks del vectorstore
+    Soporta: PDF (iframe), XLSX/CSV (dataframe), imágenes (st.image), PPTX/DOCX (texto)
+    """
+    import io as _io
+
+    # 1. PDF en caché de sesión
+    cached_pdf = st.session_state.get("_file_cache", {}).get(source_name)
+    if cached_pdf and source_name.lower().endswith(".pdf"):
+        import base64 as _b64
+        b64_pdf = _b64.b64encode(cached_pdf).decode()
+        st.markdown(
+            f'<iframe src="data:application/pdf;base64,{b64_pdf}" '
+            f'width="100%" height="{height}" '
+            f'style="border:1px solid #e0d4f7;border-radius:8px;"></iframe>',
+            unsafe_allow_html=True
+        )
+        st.download_button("⬇ Descargar PDF", data=cached_pdf,
+                           file_name=source_name, mime="application/pdf",
+                           key=f"dl_pdf_prev_{source_name}")
+        return
+
+    # 2. Buscar drive_id en metadata de ChromaDB
+    drive_id = None
+    try:
+        cb = st.session_state.get("chatbot")
+        if cb and cb.vectorstore:
+            result = cb.vectorstore.get(include=["metadatas"])
+            for m in result.get("metadatas", []):
+                if m and m.get("source") == source_name and m.get("drive_id"):
+                    drive_id = m["drive_id"]
+                    break
+    except Exception:
+        pass
+
+    fname_lower = source_name.lower()
+
+    if drive_id:
+        cache_key = f"_drive_preview_{drive_id}"
+        file_bytes = st.session_state.get(cache_key)
+
+        if file_bytes is None:
+            # Determinar mime_type para Google-native exports
+            with st.spinner(f"Cargando {source_name} desde Drive..."):
+                try:
+                    from utils.drive_manager import download_file_to_io
+                    fio = download_file_to_io(drive_id)
+                    if fio:
+                        file_bytes = fio.read()
+                        st.session_state[cache_key] = file_bytes
+                except Exception as _e:
+                    log.warning("[preview] Error descargando %s: %s", source_name, _e)
+
+        if file_bytes:
+            if fname_lower.endswith(".pdf"):
+                import base64 as _b64
+                b64_pdf = _b64.b64encode(file_bytes).decode()
+                st.markdown(
+                    f'<iframe src="data:application/pdf;base64,{b64_pdf}" '
+                    f'width="100%" height="{height}" '
+                    f'style="border:1px solid #e0d4f7;border-radius:8px;"></iframe>',
+                    unsafe_allow_html=True
+                )
+                st.download_button("⬇ Descargar PDF", data=file_bytes,
+                                   file_name=source_name, mime="application/pdf",
+                                   key=f"dl_pdf_drv_{drive_id}")
+                return
+            elif any(fname_lower.endswith(e) for e in (".png", ".jpg", ".jpeg")):
+                st.image(file_bytes, caption=source_name, use_container_width=True)
+                return
+            elif fname_lower.endswith(".tiff") or fname_lower.endswith(".tif"):
+                try:
+                    from PIL import Image
+                    img = Image.open(_io.BytesIO(file_bytes))
+                    st.image(img, caption=source_name, use_container_width=True)
+                except Exception:
+                    st.info("Formato TIFF — descarga el archivo para verlo.")
+                st.download_button("⬇ Descargar imagen", data=file_bytes,
+                                   file_name=source_name, key=f"dl_img_drv_{drive_id}")
+                return
+            elif fname_lower.endswith(".xlsx"):
+                try:
+                    import pandas as _pd
+                    df = _pd.read_excel(_io.BytesIO(file_bytes), nrows=200)
+                    st.dataframe(df, use_container_width=True, height=height)
+                    st.download_button("⬇ Descargar Excel", data=file_bytes,
+                                       file_name=source_name, key=f"dl_xlsx_drv_{drive_id}")
+                    return
+                except Exception as _e:
+                    st.warning(f"No se pudo mostrar como tabla: {_e}")
+            elif fname_lower.endswith(".csv"):
+                try:
+                    import pandas as _pd
+                    import io as _io2
+                    df = _pd.read_csv(_io2.StringIO(file_bytes.decode("utf-8", errors="replace")), nrows=200)
+                    st.dataframe(df, use_container_width=True, height=height)
+                    return
+                except Exception as _e:
+                    st.warning(f"No se pudo mostrar como tabla: {_e}")
+
+    # 3. Texto de chunks (fallback universal)
+    try:
+        cb = st.session_state.get("chatbot")
+        if cb and cb.vectorstore:
+            result = cb.vectorstore.get(include=["documents", "metadatas"])
+            chunks = [d for d, m in zip(result.get("documents", []), result.get("metadatas", []))
+                      if m and m.get("source") == source_name]
+            if chunks:
+                full_text = "\n\n─────────────────────\n\n".join(chunks)
+                st.text_area("", value=full_text, height=height,
+                             disabled=True, label_visibility="collapsed",
+                             key=f"prev_txt_{source_name}")
+                st.download_button("⬇ Exportar texto", data=full_text.encode("utf-8"),
+                                   file_name=f"{source_name}_texto.txt", mime="text/plain",
+                                   key=f"dl_txt_prev_{source_name}")
+                return
+    except Exception:
+        pass
+
+    st.info("Sin previsualización disponible para este documento.")
+
+
 def force_reindex(chatbot=None):
     """Resetea el flag y limpia _indexed_sources para re-indexar todos los archivos."""
     global _startup_index_triggered
@@ -516,13 +736,13 @@ def force_reindex(chatbot=None):
 
 
 def run_drive_indexation(drive_root_id: str, drive_api_key: str):
-    """Indexa todos los PDFs/DOCXs del Drive con timeout por archivo. Retorna (ok, msg)."""
+    """Indexa todos los documentos soportados del Drive con timeout por archivo. Retorna (ok, msg)."""
     import concurrent.futures
     from utils.drive_manager import get_recursive_files, download_file_to_io
     from utils.file_parser import extract_text_from_file
 
-    def _download(fid):
-        return download_file_to_io(fid, api_key=drive_api_key)
+    def _download(fid, mime=None):
+        return download_file_to_io(fid, api_key=drive_api_key, mime_type=mime)
 
     try:
         all_files = get_recursive_files(drive_root_id, api_key=drive_api_key)
@@ -538,7 +758,7 @@ def run_drive_indexation(drive_root_id: str, drive_api_key: str):
 
         # Download up to 4 files in parallel, 30s timeout per file
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
-            future_to_file = {ex.submit(_download, f["id"]): f for f in files_to_index}
+            future_to_file = {ex.submit(_download, f["id"], f.get("mimeType")): f for f in files_to_index}
             for future, f in future_to_file.items():
                 try:
                     fio = future.result(timeout=30)

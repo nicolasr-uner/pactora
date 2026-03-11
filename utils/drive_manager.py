@@ -9,6 +9,54 @@ from utils.auth_helper import get_drive_service, get_drive_service_with_apikey
 
 _log = logging.getLogger("pactora")
 
+# ---------------------------------------------------------------------------
+# Tipos de archivo soportados para indexación
+# ---------------------------------------------------------------------------
+
+SUPPORTED_MIMES = {
+    'application/pdf',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'application/vnd.ms-powerpoint',
+    'text/csv',
+    'text/plain',
+    'image/png',
+    'image/jpeg',
+    'image/tiff',
+}
+
+# Google Docs nativos → MIME destino para export
+GOOGLE_NATIVE_EXPORT = {
+    'application/vnd.google-apps.document': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.google-apps.spreadsheet': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+}
+
+# MIME → extensión legible (para renombrar nativos exportados y para file_counts)
+_MIME_TO_EXT: Dict[str, str] = {
+    'application/pdf': 'pdf',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+    'application/msword': 'doc',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+    'application/vnd.ms-excel': 'xls',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
+    'application/vnd.ms-powerpoint': 'ppt',
+    'text/csv': 'csv',
+    'text/plain': 'txt',
+    'image/png': 'png',
+    'image/jpeg': 'jpg',
+    'image/tiff': 'tiff',
+    'application/vnd.google-apps.document': 'docx',
+    'application/vnd.google-apps.spreadsheet': 'xlsx',
+}
+
+
+def get_ext_for_mime(mime: str) -> str:
+    """Retorna extensión legible para un MIME type."""
+    return _MIME_TO_EXT.get(mime, 'bin')
+
 def search_documents(query: str = "", max_results: int = 20) -> List[Dict]:
     """
     Searches Google Drive for .docx files matching the query.
@@ -159,6 +207,21 @@ def _do_download(service, file_id: str) -> io.BytesIO:
     return file_io
 
 
+def _do_export(service, file_id: str, export_mime: str) -> io.BytesIO:
+    """Exporta un Google Doc/Sheet nativo al formato indicado (DOCX/XLSX)."""
+    request = service.files().export_media(fileId=file_id, mimeType=export_mime)
+    file_io = io.BytesIO()
+    downloader = MediaIoBaseDownload(file_io, request)
+    done = False
+    while not done:
+        _, done = downloader.next_chunk()
+    size = file_io.tell()
+    if size == 0:
+        _log.error("[drive] _do_export: respuesta vacia (0 bytes) para file_id=%s", file_id)
+    file_io.seek(0)
+    return file_io
+
+
 def _download_with_requests(file_id: str, api_key: str) -> Optional[io.BytesIO]:
     """Descarga directa via requests con API key. Funciona para archivos publicos/compartidos."""
     try:
@@ -178,14 +241,30 @@ def _download_with_requests(file_id: str, api_key: str) -> Optional[io.BytesIO]:
     return None
 
 
-def download_file_to_io(file_id: str, api_key: str = None) -> Optional[io.BytesIO]:
+def download_file_to_io(file_id: str, api_key: str = None, mime_type: str = None) -> Optional[io.BytesIO]:
     """
     Descarga un archivo de Drive a BytesIO.
+    Si mime_type es un Google Doc/Sheet nativo, usa export_media en lugar de get_media.
     Orden de intentos:
       1. Service Account (st.secrets[GOOGLE_SERVICE_ACCOUNT]) — descarga privada
       2. OAuth2 local (token.json) — desarrollo local
       3. requests con API Key — funciona si el archivo es publico/compartido publicamente
     """
+    # Archivos Google nativos: usar export (no tienen binario descargable directo)
+    if mime_type and mime_type in GOOGLE_NATIVE_EXPORT:
+        export_mime = GOOGLE_NATIVE_EXPORT[mime_type]
+        try:
+            service = get_drive_service()
+            if service:
+                result = _do_export(service, file_id, export_mime)
+                _log.info("[drive] Export nativo OK: %s → %s", mime_type, get_ext_for_mime(export_mime))
+                return result
+        except HttpError as e:
+            _log.error("[drive] Export fallo para %s: HTTP %s — %s", file_id, e.resp.status, e)
+        except Exception as e:
+            _log.error("[drive] Export error inesperado para %s: %s", file_id, e)
+        return None
+
     # 1. Service Account o OAuth (autenticacion completa — funciona con archivos privados)
     try:
         service = get_drive_service()
@@ -206,7 +285,11 @@ def download_file_to_io(file_id: str, api_key: str = None) -> Optional[io.BytesI
 
 
 def get_recursive_files(folder_id: str, api_key: str = None) -> List[Dict]:
-    """Busca recursivamente todos los PDF/DOCX dentro de una carpeta."""
+    """
+    Busca recursivamente todos los documentos indexables dentro de una carpeta.
+    Soporta: PDF, DOCX, DOC, XLSX, XLS, PPTX, PPT, CSV, TXT, PNG, JPG, TIFF
+    y Google Docs/Sheets nativos (exportados como DOCX/XLSX).
+    """
     all_files = []
 
     def _list_folder(fid):
@@ -216,7 +299,7 @@ def get_recursive_files(folder_id: str, api_key: str = None) -> List[Dict]:
             results = service.files().list(
                 q=query,
                 pageSize=1000,
-                fields="files(id, name, mimeType)",
+                fields="files(id, name, mimeType, size)",
                 includeItemsFromAllDrives=True,
                 supportsAllDrives=True
             ).execute()
@@ -228,20 +311,28 @@ def get_recursive_files(folder_id: str, api_key: str = None) -> List[Dict]:
                     query = f"'{fid}' in parents and trashed=false"
                     results = service.files().list(
                         q=query, pageSize=1000,
-                        fields="files(id, name, mimeType)",
+                        fields="files(id, name, mimeType, size)",
                         includeItemsFromAllDrives=True,
                         supportsAllDrives=True
                     ).execute()
                     return results.get('files', [])
                 except Exception:
                     pass
-            print(f"Error en búsqueda recursiva para {fid}: {error}")
+            _log.error("[drive] Error en búsqueda recursiva para %s: %s", fid, error)
             return []
 
     for item in _list_folder(folder_id):
-        if item['mimeType'] == 'application/vnd.google-apps.folder':
+        mime = item.get('mimeType', '')
+        if mime == 'application/vnd.google-apps.folder':
             all_files.extend(get_recursive_files(item['id'], api_key))
-        elif 'pdf' in item['mimeType'] or 'word' in item['mimeType']:
+        elif mime in SUPPORTED_MIMES:
+            all_files.append(item)
+        elif mime in GOOGLE_NATIVE_EXPORT:
+            # Renombrar con extensión correcta para que file_parser detecte el tipo
+            ext = get_ext_for_mime(mime)
+            item = dict(item)
+            if not any(item['name'].lower().endswith(f'.{e}') for e in ('docx', 'xlsx', 'doc', 'xls')):
+                item['name'] = f"{item['name']}.{ext}"
             all_files.append(item)
 
     return all_files
