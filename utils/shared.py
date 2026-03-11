@@ -357,7 +357,7 @@ STYLES = """
 .stApp { background-color: #FDFAF7; font-family: 'Lato', sans-serif; color: #212121; }
 section[data-testid="stSidebar"] { background-color: #2C2039 !important; }
 [data-testid="stSidebar"] * { color: #FDFAF7 !important; }
-/* Chat input en sidebar: fondo y texto legibles */
+/* Chat input en sidebar */
 [data-testid="stSidebar"] [data-testid="stChatInput"] textarea,
 [data-testid="stSidebar"] [data-testid="stChatInput"] input {
     color: #1a1a2e !important;
@@ -394,6 +394,13 @@ div[data-testid="stButton"] > button {
     border-radius: 8px; font-weight: 700; padding: 8px 20px; transition: background 0.2s;
 }
 div[data-testid="stButton"] > button:hover { background-color: #7a48c0 !important; }
+/* Tabs — active tab Unergy purple */
+button[data-testid="stTab"][aria-selected="true"] {
+    border-bottom: 3px solid #915BD8 !important; color: #915BD8 !important; font-weight: 700;
+}
+/* Logo classes */
+.pactora-title { color: #2C2039; }
+.pactora-sub { color: #915BD8; }
 </style>
 """
 
@@ -440,8 +447,6 @@ div[data-testid="stButton"] > button {
     border-radius: 8px; font-weight: 700; padding: 8px 20px; transition: background 0.2s;
 }
 div[data-testid="stButton"] > button:hover { background-color: #915BD8 !important; }
-/* Main content text */
-.stMarkdown, .stText, p, li, label, span { color: #E8E0F0 !important; }
 /* Input fields */
 .stTextInput input, .stTextArea textarea, .stSelectbox select {
     background-color: #2C2039 !important; color: #E8E0F0 !important;
@@ -450,11 +455,34 @@ div[data-testid="stButton"] > button:hover { background-color: #915BD8 !importan
 /* Tables and dataframes */
 .stDataFrame { background: #2C2039 !important; }
 /* Info/success/warning boxes */
-.stAlert { background: #2C2039 !important; }
+.stAlert { background: #2C2039 !important; border-color: rgba(145,91,216,0.3) !important; }
 /* Dividers */
 hr { border-color: rgba(145,91,216,0.25) !important; }
 /* Expanders */
-.streamlit-expanderHeader { background: #2C2039 !important; color: #E8E0F0 !important; }
+.streamlit-expanderHeader,
+[data-testid="stExpander"] summary {
+    background: #2C2039 !important; color: #E8E0F0 !important;
+}
+[data-testid="stExpander"] { border-color: rgba(145,91,216,0.3) !important; }
+/* Tabs */
+button[data-testid="stTab"] { color: #9d87c0 !important; }
+button[data-testid="stTab"][aria-selected="true"] {
+    border-bottom: 3px solid #C39DFF !important; color: #C39DFF !important; font-weight: 700;
+}
+/* Popover / tooltip */
+[data-testid="stPopover"] { background: #2C2039 !important; }
+/* Caption and small text */
+.stCaption, small { color: #9d87c0 !important; }
+/* Main content blocks */
+[data-testid="stMainBlockContainer"],
+[data-testid="stVerticalBlock"],
+[data-testid="column"] { background-color: transparent !important; }
+/* Logo classes */
+.pactora-title { color: #E8E0F0; }
+.pactora-sub { color: #C39DFF; }
+/* Heading overrides for dark mode */
+h1, h2, h3, h4, h5, h6 { color: #E8E0F0 !important; }
+p, li, label { color: #D0C8E0 !important; }
 </style>
 """
 
@@ -539,8 +567,8 @@ def _drive_status_widget():
 def page_header(subtitle="by Unergy"):
     st.markdown(
         '<div style="font-family:Lato,sans-serif;font-weight:900;font-size:46px;'
-        'color:#2C2039;text-align:center;margin-bottom:2px;">Pactora</div>'
-        f'<div style="text-align:center;color:#915BD8;font-weight:600;margin-bottom:20px;">{subtitle}</div>',
+        'text-align:center;margin-bottom:2px;" class="pactora-title">Pactora</div>'
+        f'<div style="text-align:center;font-weight:600;margin-bottom:20px;" class="pactora-sub">{subtitle}</div>',
         unsafe_allow_html=True
     )
 

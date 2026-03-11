@@ -16,8 +16,8 @@ modo_desc = (
 )
 st.markdown(
     f'<div style="text-align:center;margin:8px 0 20px 0;">'
-    f'<div style="font-size:32px;font-weight:900;color:#2C2039;">{modo_label}</div>'
-    f'<div style="color:#915BD8;font-size:15px;margin-top:4px;">{modo_desc}</div>'
+    f'<div style="font-size:32px;font-weight:900;" class="pactora-title">{modo_label}</div>'
+    f'<div style="font-size:15px;margin-top:4px;" class="pactora-sub">{modo_desc}</div>'
     f'</div>',
     unsafe_allow_html=True
 )
@@ -111,12 +111,7 @@ if active_query:
     with st.spinner("Buscando en contratos..."):
         result = st.session_state.chatbot.ask_question(active_query)
 
-    st.markdown(
-        f'<div style="color:#666;font-size:13px;margin-bottom:12px;">'
-        f'Resultados para: <b>{active_query}</b> — '
-        f'{stats["total_docs"]} contrato(s) consultado(s)</div>',
-        unsafe_allow_html=True
-    )
+    st.caption(f'Resultados para: **{active_query}** — {stats["total_docs"]} contrato(s) consultado(s)')
     st.markdown(result)
 
     # Guardar historial simple en session_state
