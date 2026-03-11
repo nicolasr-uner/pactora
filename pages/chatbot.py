@@ -2,11 +2,6 @@ import streamlit as st
 from utils.shared import apply_styles, page_header, init_session_state, api_status_banner
 from core.llm_service import LLM_AVAILABLE
 
-
-@st.dialog("📋 Respuesta completa", width="large")
-def _show_full_response(response: str):
-    st.markdown(response)
-
 apply_styles()
 init_session_state()
 page_header()
@@ -109,15 +104,6 @@ for col, s in zip(sug_cols, SUGERENCIAS):
 
 st.markdown("---")
 
-# ─── Historial importado desde sidebar ────────────────────────────────────────
-_imported = st.session_state.pop("chat_history", None)
-if _imported:
-    st.info("💬 Conversación importada desde el sidebar", icon="🔎")
-    for _msg in _imported:
-        with st.chat_message(_msg["role"]):
-            st.markdown(_msg["content"])
-    st.markdown("---")
-
 # ─── Resultados ───────────────────────────────────────────────────────────────
 active_query = query or (st.session_state.get("jmc_query", "") if buscar else "")
 
@@ -131,17 +117,7 @@ if active_query:
         f'{stats["total_docs"]} contrato(s) consultado(s)</div>',
         unsafe_allow_html=True
     )
-
-    # Respuestas largas: expander para poder colapsar
-    if len(result) > 800:
-        with st.expander("📋 Respuesta de JuanMitaBot", expanded=True):
-            st.markdown(result)
-        # Respuestas muy largas: botón para abrir en modal a pantalla completa
-        if len(result) > 2000:
-            if st.button("📖 Leer en pantalla completa", key="open_full_dialog"):
-                _show_full_response(result)
-    else:
-        st.markdown(result)
+    st.markdown(result)
 
     # Guardar historial simple en session_state
     if "jmc_history" not in st.session_state:

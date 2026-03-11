@@ -572,14 +572,6 @@ def juanmitabot_sidebar():
                 with st.chat_message(msg["role"]):
                     st.markdown(msg["content"])
 
-        # Botón "Ver en pantalla completa" cuando el historial es largo o la última respuesta es extensa
-        _last_ans = next((m["content"] for m in reversed(history) if m["role"] == "assistant"), "")
-        if len(history) > 2 or len(_last_ans) > 500:
-            if st.button("🔎 Ver en pantalla completa", key="sidebar_expand_chat", use_container_width=True):
-                # Copiar historial del sidebar al chat principal antes de navegar
-                st.session_state.chat_history = list(history)
-                st.switch_page("pages/chatbot.py")
-
         user_input = st.chat_input("Escribe tu pregunta...", key="sidebar_juanmitabot")
         if user_input:
             st.session_state.sidebar_chat_history.append({"role": "user", "content": user_input})
