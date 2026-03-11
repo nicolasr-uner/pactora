@@ -84,16 +84,6 @@ class RAGChatbot:
                     self._indexed_sources.append(filename)
             if not all_splits:
                 return False, "No se extrajo texto valido de los documentos."
-
-            # Sanitizar metadatos: ChromaDB solo acepta str/int/float/bool.
-            # Eliminar claves reservadas (_type, etc.) y valores None/dict/list.
-            _ALLOWED = (str, int, float, bool)
-            for doc in all_splits:
-                doc.metadata = {
-                    k: v for k, v in doc.metadata.items()
-                    if not k.startswith("_") and isinstance(v, _ALLOWED)
-                }
-
             if self.vectorstore is None:
                 self.vectorstore = Chroma.from_documents(
                     documents=all_splits,
