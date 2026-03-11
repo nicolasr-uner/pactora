@@ -47,7 +47,7 @@ def get_drive_service_sa():
                 'https://www.googleapis.com/auth/drive.file',
             ]
         )
-        return build('drive', 'v3', credentials=creds, cache_discovery=False)
+        return build('drive', 'v3', credentials=creds)
     except Exception as e:
         _log.error("[auth] get_drive_service_sa fallo: %s", e)
         return None
@@ -90,7 +90,7 @@ def get_drive_service():
     try:
         creds = authenticate_google_apis()
         if creds:
-            return build('drive', 'v3', credentials=creds, cache_discovery=False)
+            return build('drive', 'v3', credentials=creds)
     except Exception:
         pass
     return None
@@ -102,7 +102,7 @@ def get_drive_service_with_apikey(api_key: str):
     SOLO sirve para LISTAR archivos publicos, NO para descargar archivos privados.
     Para descargas privadas usa get_drive_service() (Service Account).
     """
-    return build('drive', 'v3', developerKey=api_key, cache_discovery=False)
+    return build('drive', 'v3', developerKey=api_key)
 
 
 def get_calendar_service():
@@ -110,7 +110,7 @@ def get_calendar_service():
     try:
         creds = authenticate_google_apis()
         if creds:
-            return build('calendar', 'v3', credentials=creds, cache_discovery=False)
+            return build('calendar', 'v3', credentials=creds)
     except Exception:
         pass
     return None

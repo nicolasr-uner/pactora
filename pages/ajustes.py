@@ -228,10 +228,7 @@ with sec3_hrow[1].popover("ℹ️"):
     st.markdown(
         "Conecta una carpeta de Google Drive para indexar contratos automáticamente.\n\n"
         "Configura `DRIVE_ROOT_FOLDER_ID`, `DRIVE_API_KEY` y `GOOGLE_SERVICE_ACCOUNT` "
-        "en **App Settings → Secrets** de Streamlit Cloud.\n\n"
-        "⚠️ **Permiso requerido:** La carpeta de Drive debe estar compartida con el "
-        "`client_email` de la Service Account como **Editor** (no solo Viewer). "
-        "Sin permiso de Editor, el backup automático de ChromaDB fallará con error 403."
+        "en **App Settings → Secrets** de Streamlit Cloud."
     )
 
 _drive_root_id = st.session_state.get("drive_root_id", "")
@@ -287,9 +284,7 @@ else:
         "[GOOGLE_SERVICE_ACCOUNT]\n"
         "type = \"service_account\"\n"
         "# ... resto del JSON de la cuenta de servicio\n"
-        "```\n\n"
-        "⚠️ **Importante:** Comparte la carpeta de Drive con el `client_email` de la "
-        "Service Account como **Editor** (no Viewer) para que el backup automático funcione.",
+        "```",
         icon="☁️"
     )
 
