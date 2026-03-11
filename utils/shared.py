@@ -371,18 +371,31 @@ STYLES = """
 .stApp { background-color: #FDFAF7; font-family: 'Lato', sans-serif; color: #212121; }
 section[data-testid="stSidebar"] { background-color: #2C2039 !important; }
 [data-testid="stSidebar"] * { color: #FDFAF7 !important; }
-/* Chat input en sidebar */
+/* Chat input en sidebar — fondo oscuro coherente con sidebar #2C2039 */
 [data-testid="stSidebar"] [data-testid="stChatInput"] textarea,
 [data-testid="stSidebar"] [data-testid="stChatInput"] input {
-    color: #1a1a2e !important;
-    background-color: #f0eaf8 !important;
+    color: #E8E0F0 !important;
+    background-color: #3a2a50 !important;
 }
 [data-testid="stSidebar"] [data-testid="stChatInput"] {
-    background-color: #f0eaf8 !important;
+    background-color: #3a2a50 !important;
     border-radius: 8px !important;
 }
 [data-testid="stSidebar"] [data-testid="stChatInput"] textarea::placeholder {
-    color: #7a6a9a !important;
+    color: #9d87c0 !important;
+}
+/* Botón enviar chat sidebar — purple, no amarillo */
+[data-testid="stSidebar"] button[data-testid="stChatInputSubmitButton"] {
+    background-color: #915BD8 !important; border: none !important;
+}
+[data-testid="stSidebar"] button[data-testid="stChatInputSubmitButton"] svg {
+    fill: white !important;
+}
+/* Popover ℹ️ — botón trigger */
+[data-testid="stPopover"] button {
+    background-color: rgba(145,91,216,0.12) !important;
+    border: 1px solid rgba(145,91,216,0.3) !important;
+    color: #915BD8 !important;
 }
 .factora-card {
     background: rgba(255,255,255,0.9); border-radius: 16px; padding: 22px;
@@ -415,6 +428,12 @@ button[data-testid="stTab"][aria-selected="true"] {
 /* Logo classes */
 .pactora-title { color: #2C2039; }
 .pactora-sub { color: #915BD8; }
+/* Popover ℹ️ — botón trigger coherente en modo claro */
+[data-testid="stPopover"] button {
+    background-color: rgba(145,91,216,0.08) !important;
+    border: 1px solid rgba(145,91,216,0.25) !important;
+    color: #915BD8 !important;
+}
 </style>
 """
 
@@ -436,6 +455,31 @@ section[data-testid="stSidebar"] { background-color: #120D1A !important; }
 }
 [data-testid="stSidebar"] [data-testid="stChatInput"] textarea::placeholder {
     color: #9d87c0 !important;
+}
+/* Botón enviar chat sidebar */
+[data-testid="stSidebar"] button[data-testid="stChatInputSubmitButton"] {
+    background-color: #7a48c0 !important; border: none !important;
+}
+[data-testid="stSidebar"] button[data-testid="stChatInputSubmitButton"] svg {
+    fill: white !important;
+}
+/* Streamlit header/toolbar — fondo oscuro */
+header[data-testid="stHeader"] {
+    background: rgba(26,18,37,0.97) !important;
+    border-bottom: 1px solid rgba(145,91,216,0.2) !important;
+}
+header[data-testid="stHeader"] * { color: #E8E0F0 !important; }
+[data-testid="stToolbar"] { background: transparent !important; }
+/* Popover ℹ️ — botón trigger y contenido */
+[data-testid="stPopover"] button {
+    background-color: rgba(145,91,216,0.15) !important;
+    border: 1px solid rgba(145,91,216,0.35) !important;
+    color: #C39DFF !important;
+}
+[data-testid="stPopoverBody"],
+[data-testid="stPopover"] [data-testid="stMarkdownContainer"] {
+    background-color: #2C2039 !important;
+    color: #E8E0F0 !important;
 }
 .factora-card {
     background: #2C2039; border-radius: 16px; padding: 22px;
