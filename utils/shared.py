@@ -371,22 +371,25 @@ STYLES = """
 .stApp { background-color: #FDFAF7; font-family: 'Lato', sans-serif; color: #212121; }
 section[data-testid="stSidebar"] { background-color: #2C2039 !important; }
 [data-testid="stSidebar"] * { color: #FDFAF7 !important; }
-/* Chat input en sidebar — fondo oscuro coherente con sidebar #2C2039 */
+/* Chat input en sidebar — translúcido, integrado con sidebar */
 [data-testid="stSidebar"] [data-testid="stChatInput"] textarea,
 [data-testid="stSidebar"] [data-testid="stChatInput"] input {
     color: #E8E0F0 !important;
-    background-color: #3a2a50 !important;
+    background: transparent !important;
 }
 [data-testid="stSidebar"] [data-testid="stChatInput"] {
-    background-color: #3a2a50 !important;
-    border-radius: 8px !important;
+    background: rgba(255,255,255,0.06) !important;
+    border: 1px solid rgba(145,91,216,0.35) !important;
+    border-radius: 14px !important;
+    box-shadow: none !important;
 }
 [data-testid="stSidebar"] [data-testid="stChatInput"] textarea::placeholder {
     color: #9d87c0 !important;
 }
-/* Botón enviar chat sidebar — purple, no amarillo */
+/* Botón enviar chat sidebar */
 [data-testid="stSidebar"] button[data-testid="stChatInputSubmitButton"] {
     background-color: #915BD8 !important; border: none !important;
+    border-radius: 10px !important;
 }
 [data-testid="stSidebar"] button[data-testid="stChatInputSubmitButton"] svg {
     fill: white !important;
@@ -447,11 +450,13 @@ section[data-testid="stSidebar"] { background-color: #120D1A !important; }
 [data-testid="stSidebar"] [data-testid="stChatInput"] textarea,
 [data-testid="stSidebar"] [data-testid="stChatInput"] input {
     color: #E8E0F0 !important;
-    background-color: #2C2039 !important;
+    background: transparent !important;
 }
 [data-testid="stSidebar"] [data-testid="stChatInput"] {
-    background-color: #2C2039 !important;
-    border-radius: 8px !important;
+    background: rgba(145,91,216,0.08) !important;
+    border: 1px solid rgba(145,91,216,0.3) !important;
+    border-radius: 14px !important;
+    box-shadow: none !important;
 }
 [data-testid="stSidebar"] [data-testid="stChatInput"] textarea::placeholder {
     color: #9d87c0 !important;
@@ -459,6 +464,7 @@ section[data-testid="stSidebar"] { background-color: #120D1A !important; }
 /* Botón enviar chat sidebar */
 [data-testid="stSidebar"] button[data-testid="stChatInputSubmitButton"] {
     background-color: #7a48c0 !important; border: none !important;
+    border-radius: 10px !important;
 }
 [data-testid="stSidebar"] button[data-testid="stChatInputSubmitButton"] svg {
     fill: white !important;
