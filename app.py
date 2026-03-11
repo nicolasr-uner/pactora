@@ -36,6 +36,7 @@ pg = st.navigation({
         st.Page("pages/chatbot.py",     title="JuanMitaBot",    icon="🤖"),
     ],
     "Contratos": [
+        st.Page("pages/biblioteca.py",  title="Biblioteca",     icon="📚"),
         st.Page("pages/legal.py",       title="Analisis Legal", icon="⚖"),
         st.Page("pages/plantillas.py",  title="Plantillas",     icon="📄"),
     ],

@@ -1,7 +1,7 @@
 import streamlit as st
 import datetime
 import calendar
-from utils.shared import apply_styles, page_header, init_session_state, api_status_banner
+from utils.shared import apply_styles, page_header, init_session_state, api_status_banner, render_document_preview
 
 apply_styles()
 init_session_state()
@@ -135,28 +135,7 @@ with col_explorer:
 
             if st.session_state.get(prev_key, False):
                 with st.expander(f"📄 {src}", expanded=True):
-                    try:
-                        all_docs = st.session_state.chatbot.vectorstore.get(
-                            include=["documents", "metadatas"]
-                        )
-                        chunks = [
-                            d for d, m in zip(
-                                all_docs.get("documents", []),
-                                all_docs.get("metadatas", [])
-                            )
-                            if m and m.get("source") == src
-                        ]
-                        if chunks:
-                            st.text_area(
-                                "preview_ta", value="\n\n---\n\n".join(chunks[:3])[:2000],
-                                height=250, disabled=True, label_visibility="collapsed",
-                                key=f"ta_inicio_{src}"
-                            )
-                            st.caption(f"{len(chunks)} fragmentos indexados")
-                        else:
-                            st.caption("Sin texto previsualizable.")
-                    except Exception:
-                        st.caption("No se pudo cargar el texto.")
+                    render_document_preview(src, height=500)
 
 # ─── Columna derecha: Mini Calendario + Próximos eventos ─────────────────────
 with col_right:
