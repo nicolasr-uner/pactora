@@ -48,7 +48,9 @@ _startup_index_progress = {
     "indexed": 0,
     "last_file": "",
     "error": "",
-    "file_counts": {},  # {"pdf": 12, "docx": 5, "xlsx": 3, ...}
+    "file_counts": {},      # {"pdf": 12, "docx": 5, "xlsx": 3, ...}
+    "ocr_quota_failed": 0,  # archivos sin texto por cuota Gemini agotada
+    "ocr_quota_error": False,
 }
 
 
@@ -158,7 +160,14 @@ def _backup_chromadb_to_drive(drive_root_id: str) -> bool:
 
         return True
     except Exception as e:
-        log.error("[backup] Error al hacer backup ChromaDB: %s", e)
+        err_str = str(e)
+        if "storageQuotaExceeded" in err_str or "Service Accounts do not have storage quota" in err_str:
+            log.warning(
+                "[backup] Backup omitido — las Service Accounts no tienen cuota de almacenamiento personal. "
+                "Usa una Shared Drive o configura OAuth delegation para activar backup."
+            )
+        else:
+            log.error("[backup] Error al hacer backup ChromaDB: %s", e)
         return False
 
 
@@ -262,7 +271,12 @@ def _bg_startup_index(api_key, drive_root_id, drive_api_key):
                         prog["last_file"] = f["name"]
                         if fio:
                             txt = extract_text_from_file(fio, f["name"])
-                            if txt and not txt.startswith("Error"):
+                            if txt == "QUOTA_EXHAUSTED":
+                                prog["downloaded"] += 1
+                                prog["ocr_quota_failed"] = prog.get("ocr_quota_failed", 0) + 1
+                                prog["ocr_quota_error"] = True
+                                log.warning("OCR cuota agotada: %s — omitido", f["name"])
+                            elif txt and not txt.startswith("Error"):
                                 # Guarda drive_id en metadata para preview directo
                                 docs.append((txt, f["name"], {"drive_id": f["id"]}))
                                 prog["downloaded"] += 1
@@ -483,6 +497,34 @@ button[data-testid="stTab"][aria-selected="true"] {
 /* Heading overrides for dark mode */
 h1, h2, h3, h4, h5, h6 { color: #E8E0F0 !important; }
 p, li, label { color: #D0C8E0 !important; }
+/* Override inline light backgrounds from pages (metricas, legal, etc.) */
+.stApp [style*="background:#e8f5e9"],
+.stApp [style*="background: #e8f5e9"],
+.stApp [style*="background:#e3f2fd"],
+.stApp [style*="background: #e3f2fd"],
+.stApp [style*="background:#f3e5f5"],
+.stApp [style*="background: #f3e5f5"],
+.stApp [style*="background:#f9f5ff"],
+.stApp [style*="background: #f9f5ff"],
+.stApp [style*="background:white"],
+.stApp [style*="background: white"],
+.stApp [style*="background:#fff"],
+.stApp [style*="background: #fff"],
+.stApp [style*="background:rgba(255,255,255"],
+.stApp [style*="background: rgba(255,255,255"] { background: #2C2039 !important; }
+/* Override hardcoded dark text colors */
+.stApp [style*="color:#2C2039"],
+.stApp [style*="color: #2C2039"],
+.stApp [style*="color:#1b5e20"],
+.stApp [style*="color:#0d47a1"],
+.stApp [style*="color:#4a148c"],
+.stApp [style*="color:#212121"] { color: #E8E0F0 !important; }
+.stApp [style*="color:#2e7d32"],
+.stApp [style*="color:#666"],
+.stApp [style*="color: #666"],
+.stApp [style*="color:#888"],
+.stApp [style*="color:#999"],
+.stApp [style*="color:#aaa"] { color: #9d87c0 !important; }
 </style>
 """
 
@@ -562,6 +604,16 @@ def _drive_status_widget():
         st.info("Drive conectado — iniciando indexacion...", icon="⏳")
     else:
         st.success(f"Drive conectado — {n} contrato(s)", icon="✅")
+
+    # Alerta cuota OCR
+    ocr_failed = p.get("ocr_quota_failed", 0)
+    if ocr_failed > 0:
+        st.warning(
+            f"⚠️ **{ocr_failed} documento(s) sin indexar** — cuota de Gemini Vision agotada. "
+            f"Estos archivos son PDFs escaneados o imágenes que requieren OCR. "
+            f"Se indexarán automáticamente en el próximo reinicio cuando la cuota se renueve (medianoche PT).",
+            icon="🔴"
+        )
 
 
 def page_header(subtitle="by Unergy"):

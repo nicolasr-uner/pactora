@@ -161,6 +161,10 @@ def _extract_image_ocr(file_bytes: bytes, fname: str) -> str:
             _log.info("[file_parser] OCR imagen OK: %s — %d chars", fname, len(result))
         return result
     except Exception as e:
+        err_str = str(e)
+        if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+            _log.warning("[file_parser] OCR imagen — cuota agotada para %s", fname)
+            return "QUOTA_EXHAUSTED"
         _log.warning("[file_parser] OCR imagen falló para %s: %s", fname, e)
         return ""
 
@@ -249,6 +253,8 @@ def _extract_pdf_bytes(file_bytes: bytes) -> str:
                 result = "\n".join(parts)
                 _log.info("[file_parser] OCR Gemini Vision exitoso — %d páginas, %d chars", len(parts), len(result))
                 return result
+            if quota_exhausted:
+                return "QUOTA_EXHAUSTED"
     except Exception as e:
         _log.warning("[file_parser] OCR Gemini Vision falló: %s", e)
         return ""
