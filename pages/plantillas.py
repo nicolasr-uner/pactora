@@ -666,7 +666,8 @@ with tab_generar:
                             )
                             with st.spinner("✨ JuanMitaBot está generando el borrador completo..."):
                                 _result = generate_response(_prompt, context="")
-                            st.session_state[_cache_key] = _result
+                            if _result:
+                                st.session_state[_cache_key] = _result
                         _borrador_ia = st.session_state[_cache_key]
                         if not _borrador_ia or str(_borrador_ia).startswith("Lo siento") or str(_borrador_ia).startswith("Error"):
                             st.warning("Gemini no respondió. Mostrando borrador base.", icon="⚠️")

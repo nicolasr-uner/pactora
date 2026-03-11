@@ -471,5 +471,5 @@ def generate_response(
             system_instruction=effective_system,
         )
     except Exception as e:
-        _log.error("[llm_service] generate_response falló tras reintentos: %s", e)
-        return "⚠️ No pude generar respuesta con IA en este momento. Intenta de nuevo en unos segundos."
+        _log.error("[llm_service] generate_response falló: %s — tipo: %s", e, type(e).__name__)
+        return None  # ask_question hace fallback a búsqueda semántica

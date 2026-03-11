@@ -229,7 +229,7 @@ if LLM_AVAILABLE and sources:
                         )
                         try:
                             _resp = generate_response(_prompt_cal, context="")
-                            _json_match = re.search(r'\[[\s\S]*\]', _resp)
+                            _json_match = re.search(r'\[[\s\S]*\]', _resp) if _resp else None
                             if _json_match:
                                 _parsed = json.loads(_json_match.group())
                                 _existing_keys = {(e["fecha"], e["contrato"][:20]) for e in _ia_events}
