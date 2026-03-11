@@ -437,6 +437,20 @@ button[data-testid="stTab"][aria-selected="true"] {
     border: 1px solid rgba(145,91,216,0.25) !important;
     color: #915BD8 !important;
 }
+/* Text inputs — elimina fondo amarillo de Streamlit, borde purple en focus */
+.stTextInput input, .stTextArea textarea {
+    background-color: #ffffff !important;
+    color: #212121 !important;
+    border-color: #d0c4e8 !important;
+}
+.stTextInput input:focus, .stTextArea textarea:focus {
+    background-color: #ffffff !important;
+    border-color: #915BD8 !important;
+    box-shadow: 0 0 0 2px rgba(145,91,216,0.15) !important;
+}
+.stTextInput input::placeholder, .stTextArea textarea::placeholder {
+    color: #9d87c0 !important; opacity: 1 !important;
+}
 </style>
 """
 
@@ -515,6 +529,14 @@ div[data-testid="stButton"] > button:hover { background-color: #915BD8 !importan
 .stTextInput input, .stTextArea textarea, .stSelectbox select {
     background-color: #2C2039 !important; color: #E8E0F0 !important;
     border-color: rgba(145,91,216,0.4) !important;
+}
+.stTextInput input::placeholder, .stTextArea textarea::placeholder {
+    color: #9d87c0 !important; opacity: 1 !important;
+}
+.stTextInput input:focus, .stTextArea textarea:focus {
+    background-color: #2C2039 !important;
+    border-color: #915BD8 !important;
+    box-shadow: 0 0 0 2px rgba(145,91,216,0.2) !important;
 }
 /* Tables and dataframes */
 .stDataFrame { background: #2C2039 !important; }
