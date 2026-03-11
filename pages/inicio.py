@@ -109,7 +109,7 @@ with col_explorer:
 
             row = st.columns([1, 8, 1])
             row[0].markdown(f"{icon} ✓")
-            if row[1].button(src, key=f"file_btn_{src}", use_container_width=True):
+            if row[1].button(src, key=f"file_btn_{src}", width="stretch"):
                 st.session_state[prev_key] = not st.session_state.get(prev_key, False)
                 st.rerun()
 

@@ -154,7 +154,7 @@ if sources and not st.session_state.get("contract_events"):
 tool_row = st.columns([4, 4, 1])
 with tool_row[0]:
     if sources:
-        if st.button("🔄 Re-extraer fechas", type="primary", use_container_width=True):
+        if st.button("🔄 Re-extraer fechas", type="primary", width="stretch"):
             all_events = []
             progress = st.progress(0)
             for i, src in enumerate(sources):
@@ -172,7 +172,7 @@ with tool_row[0]:
 
 with tool_row[1]:
     if st.session_state.get("contract_events"):
-        if st.button("🗑 Limpiar eventos", use_container_width=True):
+        if st.button("🗑 Limpiar eventos", width="stretch"):
             st.session_state.contract_events = []
             st.rerun()
 
@@ -205,7 +205,7 @@ if LLM_AVAILABLE and sources:
             default=sources[:3],
             key="cal_ia_srcs"
         )
-        if st.button("✨ Extraer fechas con IA", type="primary", use_container_width=True, key="btn_cal_ia"):
+        if st.button("✨ Extraer fechas con IA", type="primary", width="stretch", key="btn_cal_ia"):
             if not srcs_ia:
                 st.warning("Selecciona al menos un contrato.", icon="⚠️")
             else:

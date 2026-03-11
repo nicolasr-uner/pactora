@@ -141,7 +141,7 @@ if uploaded_files:
         if len(new_files) > 10:
             st.write(f"  … y {len(new_files) - 10} más")
 
-        if st.button("📥 Indexar archivos cargados", type="primary", use_container_width=True):
+        if st.button("📥 Indexar archivos cargados", type="primary", width="stretch"):
             from utils.file_parser import extract_text_from_file
 
             docs = []
@@ -248,7 +248,7 @@ if _drive_configured:
 
     col_d1, col_d2 = st.columns(2)
     with col_d1:
-        if st.button("🔍 Probar conexión", use_container_width=True, key="drive_test_btn"):
+        if st.button("🔍 Probar conexión", width="stretch", key="drive_test_btn"):
             with st.spinner("Conectando con Drive..."):
                 try:
                     from utils.drive_manager import get_folder_contents
@@ -264,7 +264,7 @@ if _drive_configured:
                     st.error(f"❌ Error al conectar: {_e}")
 
     with col_d2:
-        if st.button("🔄 Re-indexar desde Drive", use_container_width=True, key="drive_reindex_btn", type="primary"):
+        if st.button("🔄 Re-indexar desde Drive", width="stretch", key="drive_reindex_btn", type="primary"):
             from utils.shared import force_reindex, _trigger_startup_index
             force_reindex(st.session_state.chatbot)
             _trigger_startup_index(
@@ -307,7 +307,7 @@ if LLM_AVAILABLE:
     with col_g1:
         st.success("✅ **Gemini activo** — modelo `gemini-2.5-flash`", icon="🤖")
     with col_g2:
-        if st.button("🧪 Probar conexión", use_container_width=True, key="gemini_test_btn"):
+        if st.button("🧪 Probar conexión", width="stretch", key="gemini_test_btn"):
             with st.spinner("Probando Gemini..."):
                 from core.llm_service import test_gemini_connection
                 _ok, _msg = test_gemini_connection()
@@ -338,7 +338,7 @@ col_ses1, col_ses2 = st.columns([3, 1])
 with col_ses1:
     st.caption("Reinicia la sesión de Pactora. El índice local de contratos se mantiene.")
 with col_ses2:
-    if st.button("Cerrar sesión", use_container_width=True):
+    if st.button("Cerrar sesión", width="stretch"):
         for key in list(st.session_state.keys()):
             del st.session_state[key]
         st.rerun()

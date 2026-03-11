@@ -455,10 +455,10 @@ btn_label = "✨ Enriquecer con JuanMitaBot" if LLM_AVAILABLE else "📊 Resumen
 
 col_btn, col_clear = st.columns([4, 1])
 with col_btn:
-    run_analysis = st.button(btn_label, use_container_width=True, key="btn_insights_portfolio", type="primary")
+    run_analysis = st.button(btn_label, width="stretch", key="btn_insights_portfolio", type="primary")
 with col_clear:
     if st.session_state.get(_portfolio_ia_key):
-        if st.button("🗑 Limpiar", use_container_width=True, key="btn_clear_portfolio_ia"):
+        if st.button("🗑 Limpiar", width="stretch", key="btn_clear_portfolio_ia"):
             del st.session_state[_portfolio_ia_key]
             st.rerun()
 

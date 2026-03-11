@@ -253,7 +253,7 @@ with tab_biblioteca:
                     "Pregunta", placeholder="¿Cuáles son las partes del contrato?",
                     label_visibility="collapsed"
                 )
-                sent = st.form_submit_button("Enviar →", use_container_width=True)
+                sent = st.form_submit_button("Enviar →", width="stretch")
 
             if sent and doc_q:
                 st.session_state[chat_sk].append({"role": "user", "content": doc_q})
@@ -284,12 +284,12 @@ with tab_biblioteca:
 
             if cached_risk:
                 _render_risk_result(cached_risk)
-                if st.button("🔄 Re-analizar", key="reanalyze_risk", use_container_width=True):
+                if st.button("🔄 Re-analizar", key="reanalyze_risk", width="stretch"):
                     del st.session_state[risk_key]
                     st.rerun()
             else:
                 btn_label = "🔍 Analizar riesgos con IA" if LLM_AVAILABLE else "📊 Analizar riesgos (local)"
-                if st.button(btn_label, key="analyze_risk_btn", use_container_width=True, type="primary"):
+                if st.button(btn_label, key="analyze_risk_btn", width="stretch", type="primary"):
                     chunks = _get_chunks_for(selected_src)
                     full_text = "\n".join(chunks)
                     if full_text:
@@ -331,13 +331,13 @@ with tab_biblioteca:
                 label = f"**{icon} {src}**" + (" `PDF`" if has_pdf else "")
                 cols[0].markdown(label)
 
-                if cols[1].button("Abrir", key=f"bopen_{src}", use_container_width=True):
+                if cols[1].button("Abrir", key=f"bopen_{src}", width="stretch"):
                     st.session_state["library_selected"] = src
                     st.session_state["sidebar_chat_filter"] = {"source": src}
                     st.session_state["sidebar_chat_title"] = src
                     st.rerun()
 
-                if cols[2].button("Comparar", key=f"bcmp_{src}", use_container_width=True):
+                if cols[2].button("Comparar", key=f"bcmp_{src}", width="stretch"):
                     st.session_state["cmp_preselect"] = src
                     st.toast(f"'{src[:40]}' preseleccionado", icon="✅")
 
@@ -436,7 +436,7 @@ with tab_dashboard:
             dcols[2].markdown(f'<div style="font-size:12px;color:#555;">{row["Formato"]}</div>', unsafe_allow_html=True)
             dcols[3].markdown(f'<div style="text-align:center;">{risk_emoji}</div>', unsafe_allow_html=True)
             dcols[4].markdown(f'<div style="font-size:11px;color:#888;">{row["Indexado"]}</div>', unsafe_allow_html=True)
-            if dcols[5].button("Abrir", key=f"dash_open_{row['Contrato']}", use_container_width=True):
+            if dcols[5].button("Abrir", key=f"dash_open_{row['Contrato']}", width="stretch"):
                 st.session_state["library_selected"] = row["Contrato"]
                 st.session_state["sidebar_chat_filter"] = {"source": row["Contrato"]}
                 st.session_state["sidebar_chat_title"] = row["Contrato"]
@@ -513,11 +513,8 @@ with tab_upload:
             else:
                 st.info("Documento ya indexado. Ve al **Editor** para modificarlo.")
 
-            with st.expander("Vista previa del texto extraído"):
-                st.text_area(
-                    "up_prev", value=text[:3000] + ("…" if len(text) > 3000 else ""),
-                    height=250, disabled=True, label_visibility="collapsed"
-                )
+            with st.expander("Vista previa del documento", expanded=True):
+                render_document_preview(up.name, height=500)
 
             st.markdown("---")
             st.markdown("##### 🔍 Análisis de Riesgos")
@@ -529,7 +526,7 @@ with tab_upload:
                     st.rerun()
             else:
                 _btn_lbl = "🔍 Analizar riesgos con IA" if LLM_AVAILABLE else "📊 Analizar riesgos (local)"
-                if st.button(_btn_lbl, key="up_analyze_risk", use_container_width=True, type="primary"):
+                if st.button(_btn_lbl, key="up_analyze_risk", width="stretch", type="primary"):
                     with st.spinner("Analizando riesgos..."):
                         from core.llm_service import analyze_risk
                         _ct = _detect_contract_type(up.name, text)
@@ -586,9 +583,13 @@ with tab_compare:
             contract_left = st.selectbox("Contrato base", all_sources, index=def_idx, key="cmp_left")
             text_left = _get_chunks(contract_left) if contract_left else ""
             if text_left:
-                st.text_area(
-                    "text_left", value=text_left[:2500], height=300,
-                    disabled=True, label_visibility="collapsed", key="ta_cmp_left"
+                _safe = text_left[:2500].replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")
+                st.markdown(
+                    f'<div style="height:300px;overflow-y:auto;padding:14px 16px;'
+                    f'background:#fff;border:1px solid #e0e0e0;border-radius:8px;'
+                    f'font-size:12.5px;line-height:1.65;color:#333;white-space:pre-wrap;">'
+                    f'{_safe}</div>',
+                    unsafe_allow_html=True
                 )
 
     with col_right:
@@ -610,9 +611,13 @@ with tab_compare:
                 )
                 text_right = _get_chunks(contract_right) if contract_right else ""
                 if text_right:
-                    st.text_area(
-                        "text_right", value=text_right[:2500], height=300,
-                        disabled=True, label_visibility="collapsed", key="ta_cmp_right"
+                    _safe_r = text_right[:2500].replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")
+                    st.markdown(
+                        f'<div style="height:300px;overflow-y:auto;padding:14px 16px;'
+                        f'background:#fff;border:1px solid #e0e0e0;border-radius:8px;'
+                        f'font-size:12.5px;line-height:1.65;color:#333;white-space:pre-wrap;">'
+                        f'{_safe_r}</div>',
+                        unsafe_allow_html=True
                     )
         else:
             up_cmp = st.file_uploader(
@@ -623,13 +628,17 @@ with tab_compare:
                 text_right = extract_text_from_file(io.BytesIO(up_cmp.read()), up_cmp.name)
                 contract_right = up_cmp.name
                 if text_right:
-                    st.text_area(
-                        "text_right_up", value=text_right[:2500], height=300,
-                        disabled=True, label_visibility="collapsed", key="ta_cmp_right2"
+                    _safe_ru = text_right[:2500].replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")
+                    st.markdown(
+                        f'<div style="height:300px;overflow-y:auto;padding:14px 16px;'
+                        f'background:#fff;border:1px solid #e0e0e0;border-radius:8px;'
+                        f'font-size:12.5px;line-height:1.65;color:#333;white-space:pre-wrap;">'
+                        f'{_safe_ru}</div>',
+                        unsafe_allow_html=True
                     )
 
     st.markdown("---")
-    if st.button("🔀 Comparar textos", type="primary", use_container_width=True):
+    if st.button("🔀 Comparar textos", type="primary", width="stretch"):
         if not text_left or not text_right:
             st.error("Selecciona o carga ambos contratos para comparar.")
         elif contract_left == contract_right:
@@ -694,7 +703,7 @@ with tab_compare:
                     del st.session_state[_cmp_key]
                     st.rerun()
             elif LLM_AVAILABLE:
-                if st.button("🤖 Analizar diferencias con IA", key="cmp_ia_btn", use_container_width=True, type="primary"):
+                if st.button("🤖 Analizar diferencias con IA", key="cmp_ia_btn", width="stretch", type="primary"):
                     with st.spinner("Analizando diferencias con IA..."):
                         from core.llm_service import generate_response
                         _cmp_prompt = (
@@ -762,7 +771,7 @@ with tab_editor:
 
         col_save, col_reset, col_export = st.columns(3)
         with col_save:
-            if st.button("💾 Guardar versión", use_container_width=True, key="btn_save_ver"):
+            if st.button("💾 Guardar versión", width="stretch", key="btn_save_ver"):
                 ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
                 ver["history"].append({"timestamp": ts, "content": ver["draft"]})
                 ver["draft"] = new_draft
@@ -771,7 +780,7 @@ with tab_editor:
                 st.toast(f"Versión guardada — {ts}{drive_note}", icon="💾")
                 st.rerun()
         with col_reset:
-            if st.button("↩ Restaurar original", use_container_width=True, key="btn_reset_ver"):
+            if st.button("↩ Restaurar original", width="stretch", key="btn_reset_ver"):
                 ver["draft"] = ver["original"]
                 st.rerun()
         with col_export:
@@ -780,7 +789,7 @@ with tab_editor:
                 data=new_draft.encode("utf-8"),
                 file_name=f"BORRADOR_{doc_sel.rsplit('.', 1)[0]}.txt",
                 mime="text/plain",
-                use_container_width=True,
+                width="stretch",
                 key="btn_export_draft"
             )
 
@@ -868,7 +877,7 @@ with tab_historial:
     sync_col, _ = st.columns([2, 8])
     with sync_col:
         if st.session_state.get("drive_root_id"):
-            if st.button("☁️ Sincronizar con Drive", use_container_width=True, key="btn_sync_versions"):
+            if st.button("☁️ Sincronizar con Drive", width="stretch", key="btn_sync_versions"):
                 saved = _save_versions_to_drive()
                 st.toast("Versiones guardadas en Drive ☁️" if saved else "No se pudo sincronizar con Drive", icon="☁️" if saved else "⚠️")
 

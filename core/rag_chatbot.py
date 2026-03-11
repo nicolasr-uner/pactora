@@ -1,5 +1,9 @@
 import os
 import logging
+
+# Deshabilitar telemetría de ChromaDB (evita error de posthog capture())
+os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")
+
 from langchain_core.embeddings import Embeddings as BaseEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma

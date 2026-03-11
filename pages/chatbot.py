@@ -69,7 +69,7 @@ with col_q:
         key="jmc_query"
     )
 with col_btn:
-    buscar = st.button("Buscar", type="primary", use_container_width=True)
+    buscar = st.button("Buscar", type="primary", width="stretch")
 with col_info:
     with st.popover("ℹ️"):
         if LLM_AVAILABLE:
@@ -98,7 +98,7 @@ SUGERENCIAS = [
 
 sug_cols = st.columns(len(SUGERENCIAS))
 for col, s in zip(sug_cols, SUGERENCIAS):
-    if col.button(s, key=f"sug_{s[:12]}", use_container_width=True):
+    if col.button(s, key=f"sug_{s[:12]}", width="stretch"):
         st.session_state.jmc_query = s
         st.rerun()
 
@@ -156,6 +156,6 @@ else:
         if st.session_state.get("jmc_history"):
             st.markdown("**Búsquedas recientes:**")
             for h in st.session_state.jmc_history[:5]:
-                if st.button(f"↩ {h}", key=f"hist_{h[:20]}", use_container_width=True):
+                if st.button(f"↩ {h}", key=f"hist_{h[:20]}", width="stretch"):
                     st.session_state.jmc_query = h
                     st.rerun()

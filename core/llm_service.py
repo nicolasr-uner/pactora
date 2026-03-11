@@ -173,6 +173,35 @@ def _call_gemini(
         except Exception as exc:
             elapsed = time.time() - t0
             exc_str = str(exc)
+
+            # 0a — 403 REFERRER_BLOCKED: no reintentable, fallo inmediato
+            if "403" in exc_str and "API_KEY_HTTP_REFERRER_BLOCKED" in exc_str:
+                _log.error(
+                    "[llm_service] API key bloqueada por restricción de HTTP referrer. "
+                    "Ve a Google Cloud Console → APIs & Services → Credentials → tu API Key → "
+                    "'Application restrictions' y selecciona 'None'."
+                )
+                raise
+
+            # 0b — 429 RESOURCE_EXHAUSTED: parsear retryDelay
+            if "429" in exc_str or "RESOURCE_EXHAUSTED" in exc_str:
+                retry_delay_s = 0
+                try:
+                    import re as _re
+                    m = _re.search(r'"retryDelay"\s*:\s*"(\d+)s"', exc_str)
+                    if m:
+                        retry_delay_s = int(m.group(1))
+                except Exception:
+                    pass
+                if retry_delay_s > 15:
+                    _log.error(
+                        "[llm_service] Quota diaria de Gemini agotada "
+                        "(retryDelay=%ds > 15s — probablemente límite de 20 req/día del free tier). "
+                        "Usando modo local.",
+                        retry_delay_s,
+                    )
+                    raise  # No reintentable
+
             is_retryable = any(str(c) in exc_str for c in _RETRYABLE_CODES)
             _log.warning(
                 "[llm_service] Gemini error — attempt=%d elapsed=%.2fs retryable=%s: %s",

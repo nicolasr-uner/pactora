@@ -380,7 +380,7 @@ with tab_biblioteca:
             )
 
             prev_key = f"plt_prev_{p['nombre']}"
-            if cols[1].button("Ver", key=f"pver_{p['nombre']}", use_container_width=True):
+            if cols[1].button("Ver", key=f"pver_{p['nombre']}", width="stretch"):
                 st.session_state[prev_key] = not st.session_state.get(prev_key, False)
                 st.rerun()
 
@@ -388,7 +388,7 @@ with tab_biblioteca:
             if is_drive:
                 # Plantilla real de Drive: descarga al hacer clic
                 dl_key = f"pdl_drive_{p['nombre']}"
-                if cols[2].button("⬇", key=dl_key, use_container_width=True, help="Descargar desde Drive"):
+                if cols[2].button("⬇", key=dl_key, width="stretch", help="Descargar desde Drive"):
                     with st.spinner("Descargando..."):
                         file_bytes = _get_drive_file_bytes(p["drive_id"])
                     if file_bytes:
@@ -410,15 +410,15 @@ with tab_biblioteca:
                     file_name=p["nombre"].replace(".docx", ".txt"),
                     mime="text/plain",
                     key=f"pdl_{p['nombre']}",
-                    use_container_width=True,
+                    width="stretch",
                     help="Descargar plantilla como texto"
                 )
             else:
-                if cols[2].button("⬇", key=f"pdl_na_{p['nombre']}", use_container_width=True,
+                if cols[2].button("⬇", key=f"pdl_na_{p['nombre']}", width="stretch",
                                    help="Conecta Drive para descargar"):
                     st.toast("Conecta Drive en Ajustes para descargar este archivo.", icon="ℹ️")
 
-            if cols[3].button("Cmp", key=f"pcmp_{p['nombre']}", use_container_width=True,
+            if cols[3].button("Cmp", key=f"pcmp_{p['nombre']}", width="stretch",
                                help="Preseleccionar para comparar"):
                 st.session_state["plt_cmp_a"] = p["nombre"]
                 st.toast(f"'{p['nombre']}' preseleccionada para comparar", icon="✅")
@@ -610,7 +610,7 @@ with tab_generar:
                     )
 
                 generar_label = "✨ Generar con JuanMitaBot" if LLM_AVAILABLE else "👁️ Vista previa del borrador"
-                generar = st.button(generar_label, type="primary", use_container_width=True, key="btn_generar_plt")
+                generar = st.button(generar_label, type="primary", width="stretch", key="btn_generar_plt")
 
             with col_prev:
                 st.markdown("**Vista previa:**")
@@ -691,12 +691,12 @@ with tab_generar:
                             data=texto_final.encode("utf-8"),
                             file_name=nombre_salida,
                             mime="text/plain",
-                            use_container_width=True,
+                            width="stretch",
                             key="dl_borrador_final"
                         )
 
                         # Guardar en sesión para usar en Editor de Legal
-                        if st.button("📝 Abrir en Editor de Borradores", use_container_width=True,
+                        if st.button("📝 Abrir en Editor de Borradores", width="stretch",
                                       key="btn_abrir_editor"):
                             st.session_state["draft_content"] = texto_final
                             st.session_state["draft_filename"] = nombre_salida
@@ -735,7 +735,7 @@ with tab_nueva:
             height=300,
             key="nueva_plt_texto"
         )
-        if st.button("💾 Guardar en sesión", type="primary", use_container_width=True, key="btn_guardar_nueva"):
+        if st.button("💾 Guardar en sesión", type="primary", width="stretch", key="btn_guardar_nueva"):
             if nombre_nueva and texto_nueva:
                 if "plantillas_custom" not in st.session_state:
                     st.session_state.plantillas_custom = []
@@ -784,7 +784,7 @@ with tab_nueva:
                 key="nueva_plt_tipo_ia"
             )
             if st.button("✨ Generar plantilla con JuanMitaBot", type="primary",
-                         use_container_width=True, key="btn_generar_ia_nueva"):
+                         width="stretch", key="btn_generar_ia_nueva"):
                 if not desc_ia.strip():
                     st.warning("Escribe una descripción antes de generar.", icon="⚠️")
                 else:
