@@ -25,6 +25,10 @@ TIPO_KEYWORDS = {
     "pago": ["pago", "factura", "cuota", "abono", "cancelación"],
     "inicio": ["inicio", "vigencia", "entra en vigor", "firma", "suscripción"],
     "renovacion": ["renovación", "prórroga", "extensión", "renovar"],
+    # Documentos corporativos
+    "sesion": ["sesión", "sesion", "reunión", "reunion", "junta", "asamblea", "convocatoria"],
+    "resolucion": ["resolución", "resolucion", "acuerdo", "aprobó", "aprobo", "decidió", "decidio", "aprobación"],
+    "inscripcion": ["inscripción", "inscripcion", "registro", "registró", "registro ante", "matrícula", "matricula"],
 }
 
 TIPO_COLOR = {
@@ -32,6 +36,9 @@ TIPO_COLOR = {
     "pago": "#2196F3",
     "inicio": "#4CAF50",
     "renovacion": "#FF9800",
+    "sesion": "#673AB7",
+    "resolucion": "#00796B",
+    "inscripcion": "#455A64",
     "hito": "#9C27B0",
 }
 
@@ -40,6 +47,9 @@ TIPO_ICON = {
     "pago": "🔵",
     "inicio": "🟢",
     "renovacion": "🟠",
+    "sesion": "📋",
+    "resolucion": "⚖️",
+    "inscripcion": "📝",
     "hito": "🟣",
 }
 
@@ -219,13 +229,16 @@ if LLM_AVAILABLE and sources:
                             st.write(f"  ⚠️ Sin texto extraíble")
                             continue
                         _prompt_cal = (
-                            f"Analiza este contrato y extrae TODAS las fechas importantes: "
-                            f"vencimientos, pagos, hitos, renovaciones, inicios de vigencia.\n\n"
+                            f"Analiza este documento y extrae TODAS las fechas importantes.\n\n"
+                            f"Para contratos: vencimientos, pagos, hitos, renovaciones, inicios de vigencia.\n"
+                            f"Para actas/documentos corporativos: fechas de sesión, resoluciones, inscripciones.\n"
+                            f"También detecta fechas escritas en texto como 'vigésimo cuarto día del mes de noviembre'.\n\n"
                             f"Responde ÚNICAMENTE con un array JSON válido con este formato exacto:\n"
-                            f'[{{"fecha": "YYYY-MM-DD", "tipo_evento": "vencimiento|pago|inicio|renovacion|hito", '
+                            f'[{{"fecha": "YYYY-MM-DD", '
+                            f'"tipo_evento": "vencimiento|pago|inicio|renovacion|sesion|resolucion|inscripcion|hito", '
                             f'"descripcion": "descripción breve en máx 80 chars"}}]\n\n'
                             f"Si no hay fechas claras, responde: []\n\n"
-                            f"CONTRATO ({_src}):\n{_text[:4000]}"
+                            f"DOCUMENTO ({_src}):\n{_text[:4000]}"
                         )
                         try:
                             _resp = generate_response(_prompt_cal, context="")
@@ -258,14 +271,15 @@ if LLM_AVAILABLE and sources:
                     st.rerun()
 
 # ─── Leyenda ──────────────────────────────────────────────────────────────────
-leg_cols = st.columns(5)
-for col, (tipo, color) in zip(leg_cols, TIPO_COLOR.items()):
-    icon = TIPO_ICON[tipo]
-    col.markdown(
+_leg_html = '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:4px;">'
+for tipo, color in TIPO_COLOR.items():
+    icon = TIPO_ICON.get(tipo, "⚫")
+    _leg_html += (
         f'<span style="background:{color};color:white;border-radius:4px;'
-        f'padding:2px 8px;font-size:11px;">{icon} {tipo.capitalize()}</span>',
-        unsafe_allow_html=True
+        f'padding:2px 8px;font-size:11px;">{icon} {tipo.capitalize()}</span>'
     )
+_leg_html += '</div>'
+st.markdown(_leg_html, unsafe_allow_html=True)
 
 st.markdown("---")
 
@@ -342,23 +356,8 @@ else:
             if src in (st.session_state.chatbot._indexed_sources or []):
                 with dc2:
                     st.markdown("**Vista previa del contrato:**")
-                    try:
-                        all_docs = st.session_state.chatbot.vectorstore.get(
-                            include=["documents", "metadatas"]
-                        )
-                        chunks = [
-                            d for d, m in zip(
-                                all_docs.get("documents", []), all_docs.get("metadatas", [])
-                            )
-                            if m and m.get("source") == src
-                        ]
-                        if chunks:
-                            st.text_area(
-                                "cal_prev", value=chunks[0][:500], height=150,
-                                disabled=True, label_visibility="collapsed"
-                            )
-                    except Exception:
-                        st.caption("No se pudo cargar la vista previa.")
+                    from utils.shared import render_document_preview
+                    render_document_preview(src, height=350)
 
     except ImportError:
         # Fallback: lista agrupada por mes
