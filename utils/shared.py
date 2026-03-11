@@ -398,8 +398,80 @@ div[data-testid="stButton"] > button:hover { background-color: #7a48c0 !importan
 """
 
 
+DARK_STYLES = """
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&display=swap');
+.stApp { background-color: #1A1225; font-family: 'Lato', sans-serif; color: #E8E0F0; }
+section[data-testid="stSidebar"] { background-color: #120D1A !important; }
+[data-testid="stSidebar"] * { color: #E8E0F0 !important; }
+[data-testid="stSidebar"] [data-testid="stChatInput"] textarea,
+[data-testid="stSidebar"] [data-testid="stChatInput"] input {
+    color: #E8E0F0 !important;
+    background-color: #2C2039 !important;
+}
+[data-testid="stSidebar"] [data-testid="stChatInput"] {
+    background-color: #2C2039 !important;
+    border-radius: 8px !important;
+}
+[data-testid="stSidebar"] [data-testid="stChatInput"] textarea::placeholder {
+    color: #9d87c0 !important;
+}
+.factora-card {
+    background: #2C2039; border-radius: 16px; padding: 22px;
+    box-shadow: 0 6px 24px rgba(145,91,216,0.18); border: 1px solid rgba(145,91,216,0.35);
+    margin-bottom: 18px;
+}
+.card-title {
+    font-size: 17px; font-weight: 900; color: #E8E0F0; margin-bottom: 14px;
+    border-left: 4px solid #915BD8; padding-left: 10px;
+}
+.metric-card {
+    background: #2C2039; border-radius: 12px; padding: 18px; text-align: center;
+    box-shadow: 0 4px 16px rgba(145,91,216,0.18); border: 1px solid rgba(145,91,216,0.35);
+}
+.metric-val { font-size: 34px; font-weight: 900; color: #C39DFF; }
+.metric-lbl { font-size: 12px; color: #9d87c0; margin-top: 4px; }
+.version-badge {
+    background: #915BD8; color: white; border-radius: 4px;
+    padding: 2px 8px; font-size: 11px; font-weight: 700;
+}
+div[data-testid="stButton"] > button {
+    background-color: #7a48c0 !important; color: white !important; border: none;
+    border-radius: 8px; font-weight: 700; padding: 8px 20px; transition: background 0.2s;
+}
+div[data-testid="stButton"] > button:hover { background-color: #915BD8 !important; }
+/* Main content text */
+.stMarkdown, .stText, p, li, label, span { color: #E8E0F0 !important; }
+/* Input fields */
+.stTextInput input, .stTextArea textarea, .stSelectbox select {
+    background-color: #2C2039 !important; color: #E8E0F0 !important;
+    border-color: rgba(145,91,216,0.4) !important;
+}
+/* Tables and dataframes */
+.stDataFrame { background: #2C2039 !important; }
+/* Info/success/warning boxes */
+.stAlert { background: #2C2039 !important; }
+/* Dividers */
+hr { border-color: rgba(145,91,216,0.25) !important; }
+/* Expanders */
+.streamlit-expanderHeader { background: #2C2039 !important; color: #E8E0F0 !important; }
+</style>
+"""
+
+
 def apply_styles():
-    st.markdown(STYLES, unsafe_allow_html=True)
+    dark = st.session_state.get("dark_mode", False)
+    st.markdown(DARK_STYLES if dark else STYLES, unsafe_allow_html=True)
+
+
+def dark_mode_toggle():
+    """Botón de toggle dark/light mode en la sidebar."""
+    with st.sidebar:
+        dark = st.session_state.get("dark_mode", False)
+        label = "☀️ Modo claro" if dark else "🌙 Modo oscuro"
+        if st.button(label, key="toggle_dark_mode", width="stretch"):
+            st.session_state["dark_mode"] = not dark
+            st.rerun()
 
 
 def api_status_banner():
@@ -500,6 +572,7 @@ def init_session_state():
         "sidebar_chat_filter": None,
         "sidebar_chat_title": "",
         "drive_indexed": False,
+        "dark_mode": False,
     }
     for key, val in defaults.items():
         if key not in st.session_state:
