@@ -159,10 +159,12 @@ def create_project_folder(project_name: str, parent_folder_id: Optional[str] = N
 def get_folder_metadata(folder_id: str, api_key: str = None):
     """Obtiene el nombre y detalles de una carpeta específica."""
     try:
-        service = get_drive_service_with_apikey(api_key) if api_key else get_drive_service()
+        service = get_drive_service() or (get_drive_service_with_apikey(api_key) if api_key else None)
+        if not service:
+            return {"id": folder_id, "name": "Carpeta Desconocida"}
         return service.files().get(fileId=folder_id, fields="id, name", supportsAllDrives=True).execute()
     except HttpError as error:
-        print(f"Error obteniendo metadata de {folder_id}: {error}")
+        _log.warning("[drive] get_folder_metadata error para %s: %s", folder_id, error)
         return {"id": folder_id, "name": "Carpeta Desconocida"}
 
 
@@ -181,15 +183,18 @@ def get_folder_contents(folder_id: str, api_key: str = None):
         return results.get('files', [])
 
     try:
-        service = get_drive_service_with_apikey(api_key) if api_key else get_drive_service()
+        service = get_drive_service() or (get_drive_service_with_apikey(api_key) if api_key else None)
+        if not service:
+            return []
         return _list(service)
     except HttpError as error:
+        # Si SA falló con 403/401, intentar con API key como último recurso
         if api_key and error.resp.status in (401, 403):
             try:
-                return _list(get_drive_service())
+                return _list(get_drive_service_with_apikey(api_key))
             except Exception:
                 pass
-        print(f"Error listando contenidos de {folder_id}: {error}")
+        _log.warning("[drive] get_folder_contents error para %s: %s", folder_id, error)
         return []
 
 
@@ -293,29 +298,26 @@ def get_recursive_files(folder_id: str, api_key: str = None) -> List[Dict]:
     all_files = []
 
     def _list_folder(fid):
-        try:
-            service = get_drive_service_with_apikey(api_key) if api_key else get_drive_service()
+        def _execute(service):
             query = f"'{fid}' in parents and trashed=false"
-            results = service.files().list(
+            return service.files().list(
                 q=query,
                 pageSize=1000,
                 fields="files(id, name, mimeType, size)",
                 includeItemsFromAllDrives=True,
                 supportsAllDrives=True
-            ).execute()
-            return results.get('files', [])
+            ).execute().get('files', [])
+
+        try:
+            service = get_drive_service() or (get_drive_service_with_apikey(api_key) if api_key else None)
+            if not service:
+                return []
+            return _execute(service)
         except HttpError as error:
+            # SA falló — intentar API key como último recurso
             if api_key and error.resp.status in (401, 403):
                 try:
-                    service = get_drive_service()
-                    query = f"'{fid}' in parents and trashed=false"
-                    results = service.files().list(
-                        q=query, pageSize=1000,
-                        fields="files(id, name, mimeType, size)",
-                        includeItemsFromAllDrives=True,
-                        supportsAllDrives=True
-                    ).execute()
-                    return results.get('files', [])
+                    return _execute(get_drive_service_with_apikey(api_key))
                 except Exception:
                     pass
             _log.error("[drive] Error en búsqueda recursiva para %s: %s", fid, error)

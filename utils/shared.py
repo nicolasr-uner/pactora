@@ -172,12 +172,15 @@ def _bg_startup_index(api_key, drive_root_id, drive_api_key):
         import concurrent.futures
         try:
             from utils.drive_manager import get_recursive_files, download_file_to_io
-            from utils.file_parser import extract_text_from_file
+            from utils.file_parser import extract_text_from_file, reset_ocr_quota
         except (ImportError, KeyError) as _ie:
             log.error("Modulos no disponibles (hot-reload race): %s — abortando", _ie)
             prog["status"] = "error"
             prog["error"] = f"Import error: {_ie}"
             return
+
+        # ── Resetear quota OCR al inicio de cada indexación ─────────────────
+        reset_ocr_quota()
 
         # ── Cargar metadata de indexación local ─────────────────────────────
         index_meta = _load_index_metadata()
@@ -739,7 +742,8 @@ def run_drive_indexation(drive_root_id: str, drive_api_key: str):
     """Indexa todos los documentos soportados del Drive con timeout por archivo. Retorna (ok, msg)."""
     import concurrent.futures
     from utils.drive_manager import get_recursive_files, download_file_to_io
-    from utils.file_parser import extract_text_from_file
+    from utils.file_parser import extract_text_from_file, reset_ocr_quota
+    reset_ocr_quota()
 
     def _download(fid, mime=None):
         return download_file_to_io(fid, api_key=drive_api_key, mime_type=mime)

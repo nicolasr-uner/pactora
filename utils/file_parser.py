@@ -1,7 +1,34 @@
 import io
 import logging
+import threading
 
 _log = logging.getLogger("pactora")
+
+# ─── OCR rate-limiting global ──────────────────────────────────────────────────
+# Plan gratuito Gemini: 20 req/día para gemini-2.5-flash.
+# Reservamos máx 5 llamadas OCR por sesión de indexación para no agotar la quota.
+_OCR_MAX_PER_SESSION = 5
+_ocr_calls_remaining = _OCR_MAX_PER_SESSION
+_ocr_lock = threading.Lock()
+
+
+def reset_ocr_quota():
+    """Resetea el contador OCR al inicio de cada indexación."""
+    global _ocr_calls_remaining
+    with _ocr_lock:
+        _ocr_calls_remaining = _OCR_MAX_PER_SESSION
+    _log.info("[file_parser] OCR quota reseteada — %d llamadas disponibles", _OCR_MAX_PER_SESSION)
+
+
+def _ocr_acquire() -> bool:
+    """Intenta consumir una llamada OCR. Retorna False si se agotó la quota."""
+    global _ocr_calls_remaining
+    with _ocr_lock:
+        if _ocr_calls_remaining <= 0:
+            return False
+        _ocr_calls_remaining -= 1
+        _log.info("[file_parser] OCR call consumida — quedan %d", _ocr_calls_remaining)
+        return True
 
 
 def extract_text_from_file(file_obj, filename: str, gemini_api_key: str = None) -> str:
@@ -127,7 +154,7 @@ def _extract_pptx(file_obj) -> str:
 def _extract_image_ocr(file_bytes: bytes, fname: str) -> str:
     """
     Extrae texto de imágenes (PNG, JPG, TIFF) via Gemini Vision OCR.
-    Fallback: retorna cadena vacía si no hay LLM disponible.
+    Fallback: retorna cadena vacía si no hay LLM disponible o se agotó la quota.
     """
     try:
         from core.llm_service import LLM_AVAILABLE, GEMINI_API_KEY, _GEMINI_MODEL
@@ -135,10 +162,13 @@ def _extract_image_ocr(file_bytes: bytes, fname: str) -> str:
             _log.warning("[file_parser] Imagen recibida pero Gemini no disponible: %s", fname)
             return ""
 
+        if not _ocr_acquire():
+            _log.warning("[file_parser] OCR quota agotada — omitiendo imagen: %s", fname)
+            return ""
+
         from google import genai
         from google.genai import types
 
-        # Determinar MIME type de la imagen
         if fname.endswith(".png"):
             mime = "image/png"
         elif fname.endswith((".jpg", ".jpeg")):
@@ -161,7 +191,11 @@ def _extract_image_ocr(file_bytes: bytes, fname: str) -> str:
             _log.info("[file_parser] OCR imagen OK: %s — %d chars", fname, len(result))
         return result
     except Exception as e:
-        _log.warning("[file_parser] OCR imagen falló para %s: %s", fname, e)
+        err_str = str(e)
+        if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+            _log.warning("[file_parser] OCR imagen quota 429 — omitiendo: %s", fname)
+        else:
+            _log.warning("[file_parser] OCR imagen falló para %s: %s", fname, err_str[:120])
         return ""
 
 
@@ -202,55 +236,65 @@ def _extract_pdf_bytes(file_bytes: bytes) -> str:
     except Exception:
         pass
 
-    # Intento 4: Gemini Vision OCR — para PDFs escaneados sin texto seleccionable
+    # Intento 4: Gemini Vision OCR — solo para PDFs escaneados sin texto seleccionable
     try:
         import time as _time
         from core.llm_service import LLM_AVAILABLE, GEMINI_API_KEY, _GEMINI_MODEL
-        if LLM_AVAILABLE:
-            import fitz  # pymupdf
-            from google import genai  # type: ignore
-            from google.genai import types  # type: ignore
+        if not LLM_AVAILABLE:
+            return ""
 
-            client = genai.Client(api_key=GEMINI_API_KEY)
+        import fitz  # pymupdf
+        from google import genai  # type: ignore
+        from google.genai import types  # type: ignore
 
-            doc = fitz.open(stream=file_bytes, filetype="pdf")
-            parts = []
-            quota_exhausted = False
-            for page_num, page in enumerate(doc):
-                if quota_exhausted:
-                    break
-                mat = fitz.Matrix(2.0, 2.0)
-                pix = page.get_pixmap(matrix=mat)
-                img_bytes = pix.tobytes("png")
-                try:
-                    response = client.models.generate_content(
-                        model=_GEMINI_MODEL,
-                        contents=[
-                            types.Part(text="Extrae todo el texto de esta página de documento. Devuelve solo el texto preservando estructura y párrafos."),
-                            types.Part.from_bytes(data=img_bytes, mime_type="image/png"),
-                        ],
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        doc = fitz.open(stream=file_bytes, filetype="pdf")
+        parts = []
+
+        for page_num, page in enumerate(doc):
+            # Verificar quota antes de cada página
+            if not _ocr_acquire():
+                _log.warning(
+                    "[file_parser] OCR quota agotada en página %d/%d — %d págs procesadas",
+                    page_num, len(doc), len(parts)
+                )
+                break
+
+            mat = fitz.Matrix(2.0, 2.0)
+            pix = page.get_pixmap(matrix=mat)
+            img_bytes = pix.tobytes("png")
+            try:
+                response = client.models.generate_content(
+                    model=_GEMINI_MODEL,
+                    contents=[
+                        types.Part(text="Extrae todo el texto de esta página de documento. Devuelve solo el texto preservando estructura y párrafos."),
+                        types.Part.from_bytes(data=img_bytes, mime_type="image/png"),
+                    ],
+                )
+                page_text = response.text if response.text else ""
+                if page_text.strip():
+                    parts.append(page_text)
+                # 3s entre páginas para conservar quota diaria
+                if page_num < len(doc) - 1:
+                    _time.sleep(3.0)
+            except Exception as page_err:
+                err_str = str(page_err)
+                if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+                    _log.warning(
+                        "[file_parser] OCR 429 en página %d — quota diaria agotada, %d págs recuperadas",
+                        page_num, len(parts)
                     )
-                    page_text = response.text if response.text else ""
-                    if page_text.strip():
-                        parts.append(page_text)
-                    # Small delay between pages to avoid rate limiting
-                    if page_num < len(doc) - 1:
-                        _time.sleep(0.5)
-                except Exception as page_err:
-                    err_str = str(page_err)
-                    if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
-                        _log.warning("[file_parser] OCR cuota agotada en página %d — usando texto parcial (%d págs)", page_num, len(parts))
-                        quota_exhausted = True
-                    else:
-                        _log.warning("[file_parser] OCR página %d falló: %s", page_num, err_str[:80])
-            doc.close()
+                    break
+                else:
+                    _log.warning("[file_parser] OCR página %d falló: %s", page_num, err_str[:80])
 
-            if parts:
-                result = "\n".join(parts)
-                _log.info("[file_parser] OCR Gemini Vision exitoso — %d páginas, %d chars", len(parts), len(result))
-                return result
+        doc.close()
+
+        if parts:
+            result = "\n".join(parts)
+            _log.info("[file_parser] OCR Gemini Vision exitoso — %d páginas, %d chars", len(parts), len(result))
+            return result
     except Exception as e:
         _log.warning("[file_parser] OCR Gemini Vision falló: %s", e)
-        return ""
 
     return ""
