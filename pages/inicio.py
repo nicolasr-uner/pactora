@@ -9,7 +9,7 @@ page_header()
 api_status_banner()
 
 
-def _mini_calendar(year, month, event_days):
+def _mini_calendar(year, month, event_days, dark=False):
     """Renderiza calendario mensual en HTML."""
     MONTH_NAMES = ["", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
                    "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
@@ -17,13 +17,19 @@ def _mini_calendar(year, month, event_days):
         "inicio": "#4CAF50", "vencimiento": "#e53935", "renovacion": "#FF9800",
         "pago": "#2196F3", "hito": "#9C27B0"
     }
+    bg      = "#2C2039"   if dark else "white"
+    txt     = "#E8E0F0"   if dark else "#444"
+    title   = "#E8E0F0"   if dark else "#2C2039"
+    caption = "#9d87c0"   if dark else "#666"
+    shadow  = "rgba(145,91,216,0.18)" if dark else "rgba(145,91,216,0.08)"
+
     today = datetime.date.today()
     cal_matrix = calendar.monthcalendar(year, month)
 
     html = (
-        '<div style="background:white;border-radius:12px;padding:16px;'
-        'box-shadow:0 2px 12px rgba(145,91,216,0.08);">'
-        f'<div style="text-align:center;font-weight:900;color:#2C2039;'
+        f'<div style="background:{bg};border-radius:12px;padding:16px;'
+        f'box-shadow:0 2px 12px {shadow};">'
+        f'<div style="text-align:center;font-weight:900;color:{title};'
         f'margin-bottom:10px;font-size:14px;">{MONTH_NAMES[month]} {year}</div>'
         '<table style="width:100%;border-collapse:collapse;font-size:12px;">'
         '<tr>'
@@ -53,11 +59,11 @@ def _mini_calendar(year, month, event_days):
                     f'justify-content:center;font-size:11px;">{day}</div></td>'
                 )
             else:
-                html += f'<td style="text-align:center;padding:4px;color:#444;">{day}</td>'
+                html += f'<td style="text-align:center;padding:4px;color:{txt};">{day}</td>'
         html += "</tr>"
     html += "</table>"
     if event_days:
-        html += f'<div style="font-size:11px;color:#666;margin-top:6px;text-align:center;">{len(event_days)} evento(s) este mes</div>'
+        html += f'<div style="font-size:11px;color:{caption};margin-top:6px;text-align:center;">{len(event_days)} evento(s) este mes</div>'
     html += "</div>"
     return html
 
@@ -159,7 +165,8 @@ with col_right:
         except Exception:
             pass
 
-    st.markdown(_mini_calendar(today.year, today.month, event_days), unsafe_allow_html=True)
+    _dark = st.session_state.get("dark_mode", False)
+    st.markdown(_mini_calendar(today.year, today.month, event_days, dark=_dark), unsafe_allow_html=True)
 
     # Leyenda
     TIPO_COLOR = {
