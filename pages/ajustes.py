@@ -300,12 +300,13 @@ with sec4_hrow[1].popover("ℹ️"):
         "Obtén tu clave gratis en [aistudio.google.com](https://aistudio.google.com/apikey)."
     )
 
-from core.llm_service import LLM_AVAILABLE
+from core.llm_service import LLM_AVAILABLE, get_call_stats, _GEMINI_MODEL, _GEMINI_FALLBACK_MODEL
 
 if LLM_AVAILABLE:
+    _gstats = get_call_stats()
     col_g1, col_g2 = st.columns([3, 1])
     with col_g1:
-        st.success("✅ **Gemini activo** — modelo `gemini-2.5-flash`", icon="🤖")
+        st.success(f"✅ **Gemini activo** — modelo `{_GEMINI_MODEL}` · fallback `{_GEMINI_FALLBACK_MODEL}`", icon="🤖")
     with col_g2:
         if st.button("🧪 Probar conexión", width="stretch", key="gemini_test_btn"):
             with st.spinner("Probando Gemini..."):
@@ -315,6 +316,19 @@ if LLM_AVAILABLE:
                     st.success(f"✅ {_msg}")
                 else:
                     st.error(f"❌ {_msg}")
+
+    # Contador de uso
+    _calls_today = _gstats["calls_today"]
+    _calls_min = _gstats["calls_last_minute"]
+    _rate_max = _gstats["rate_limit_per_minute"]
+    _c1, _c2, _c3 = st.columns(3)
+    with _c1:
+        st.metric("Llamadas hoy", _calls_today, help="Se resetea a medianoche. gemini-2.0-flash tiene ~1,500 req/día en free tier.")
+    with _c2:
+        st.metric("Llamadas último minuto", f"{_calls_min}/{_rate_max}", help=f"Límite interno: {_rate_max} llamadas/minuto para proteger la quota.")
+    with _c3:
+        _quota_pct = min(100, int(_calls_today / 15))  # 1500 req/día → 100%
+        st.metric("Quota estimada usada", f"{_quota_pct}%", help="Estimado sobre 1,500 req/día de gemini-2.0-flash en free tier.")
 else:
     st.warning(
         "**⚫ Gemini no configurado** — JuanMitaBot funciona en modo búsqueda semántica local.\n\n"

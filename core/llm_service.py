@@ -19,13 +19,78 @@ o en la variable de entorno GEMINI_API_KEY.
 
 from __future__ import annotations
 
+import collections
 import json
 import logging
 import os
+import threading
 import time
+from datetime import date
 from typing import Any, Dict, List, Optional, Tuple
 
 _log = logging.getLogger("pactora")
+
+# ---------------------------------------------------------------------------
+# Rate limiter interno — máximo 10 llamadas por minuto
+# ---------------------------------------------------------------------------
+
+_RATE_LIMIT_MAX = 10  # llamadas por minuto
+_rate_lock = threading.Lock()
+_rate_timestamps: collections.deque = collections.deque()  # timestamps de llamadas recientes
+
+# Contador diario de llamadas (se resetea automáticamente al cambiar de día)
+_call_count_today: int = 0
+_call_count_date: str = ""  # fecha YYYY-MM-DD del contador actual
+
+
+def _check_and_record_call() -> None:
+    """
+    Verifica el rate limit (10 llamadas/minuto) y registra la llamada actual.
+    Lanza ValueError si el límite está excedido, indicando cuántos segundos esperar.
+    """
+    global _call_count_today, _call_count_date
+
+    with _rate_lock:
+        now = time.time()
+        today_str = date.today().isoformat()
+
+        # Reset contador diario si cambió el día
+        if _call_count_date != today_str:
+            _call_count_today = 0
+            _call_count_date = today_str
+
+        # Eliminar timestamps más viejos de 60 segundos
+        cutoff = now - 60.0
+        while _rate_timestamps and _rate_timestamps[0] < cutoff:
+            _rate_timestamps.popleft()
+
+        # Verificar límite por minuto
+        if len(_rate_timestamps) >= _RATE_LIMIT_MAX:
+            oldest = _rate_timestamps[0]
+            wait_s = int(60.0 - (now - oldest)) + 1
+            raise ValueError(
+                f"rate_limit: Límite de {_RATE_LIMIT_MAX} llamadas/minuto alcanzado. "
+                f"Espera ~{wait_s}s antes de la próxima consulta."
+            )
+
+        # Registrar llamada
+        _rate_timestamps.append(now)
+        _call_count_today += 1
+
+
+def get_call_stats() -> Dict[str, Any]:
+    """Retorna estadísticas de uso de la API Gemini para mostrar en Ajustes."""
+    with _rate_lock:
+        now = time.time()
+        cutoff = now - 60.0
+        calls_last_minute = sum(1 for t in _rate_timestamps if t >= cutoff)
+        return {
+            "calls_today": _call_count_today,
+            "calls_last_minute": calls_last_minute,
+            "rate_limit_per_minute": _RATE_LIMIT_MAX,
+            "primary_model": _GEMINI_MODEL,
+            "fallback_model": _GEMINI_FALLBACK_MODEL,
+        }
 
 # ---------------------------------------------------------------------------
 # Carga de API key — fuente única de verdad
@@ -60,8 +125,9 @@ if LLM_AVAILABLE:
         _log.warning("[llm_service] No se pudo importar google-genai: %s", e)
         LLM_AVAILABLE = False
 
-# Nombre del modelo — fuente única de verdad
-_GEMINI_MODEL = "gemini-2.5-flash"
+# Modelos Gemini — primario con mejor quota (1,500 req/día en free tier)
+_GEMINI_MODEL = "gemini-2.0-flash"
+_GEMINI_FALLBACK_MODEL = "gemini-1.5-flash"  # fallback si 2.0 da 429 por quota diaria
 
 
 # ---------------------------------------------------------------------------
@@ -121,32 +187,14 @@ def _clean_json_response(text: str) -> str:
 _RETRYABLE_CODES = {429, 500, 502, 503, 504}
 
 
-def _call_gemini(
+def _call_gemini_single(
     prompt: "str | list",
-    model_name: str = _GEMINI_MODEL,
-    system_instruction: Optional[str] = None,
-    timeout: int = 30,
+    model_name: str,
+    config: Any,
+    client: Any,
 ) -> str:
-    """
-    Llama a Gemini con retry exponencial (3 intentos: 2s → 4s → 8s).
-
-    Args:
-        prompt: String simple o lista de types.Content (para multi-turn).
-        model_name: Modelo Gemini a usar (por defecto _GEMINI_MODEL).
-        system_instruction: Instrucción de sistema separada del prompt de usuario.
-            Se pasa vía GenerateContentConfig, no embebida en el prompt.
-        timeout: Reservado para uso futuro.
-
-    Lanza excepción si todos los reintentos fallan.
-    """
-    from google import genai  # type: ignore
-    from google.genai import types  # type: ignore
-
-    client = genai.Client(api_key=GEMINI_API_KEY)
-
-    config = types.GenerateContentConfig(
-        system_instruction=system_instruction,
-    ) if system_instruction else None
+    """Ejecuta una sola llamada a Gemini con retry exponencial (3 intentos)."""
+    import re as _re
 
     prompt_len = len(prompt) if isinstance(prompt, str) else len(prompt)
     max_attempts = 3
@@ -174,7 +222,7 @@ def _call_gemini(
             elapsed = time.time() - t0
             exc_str = str(exc)
 
-            # 0a — 403 REFERRER_BLOCKED: no reintentable, fallo inmediato
+            # 403 REFERRER_BLOCKED: no reintentable, fallo inmediato
             if "403" in exc_str and "API_KEY_HTTP_REFERRER_BLOCKED" in exc_str:
                 _log.error(
                     "[llm_service] API key bloqueada por restricción de HTTP referrer. "
@@ -183,24 +231,21 @@ def _call_gemini(
                 )
                 raise
 
-            # 0b — 429 RESOURCE_EXHAUSTED: parsear retryDelay
+            # 429 RESOURCE_EXHAUSTED: parsear retryDelay para detectar quota diaria agotada
             if "429" in exc_str or "RESOURCE_EXHAUSTED" in exc_str:
                 retry_delay_s = 0
                 try:
-                    import re as _re
                     m = _re.search(r'"retryDelay"\s*:\s*"(\d+)s"', exc_str)
                     if m:
                         retry_delay_s = int(m.group(1))
                 except Exception:
                     pass
                 if retry_delay_s > 15:
-                    _log.error(
-                        "[llm_service] Quota diaria de Gemini agotada "
-                        "(retryDelay=%ds > 15s — probablemente límite de 20 req/día del free tier). "
-                        "Usando modo local.",
-                        retry_delay_s,
+                    _log.warning(
+                        "[llm_service] Quota diaria agotada en %s (retryDelay=%ds).",
+                        model_name, retry_delay_s,
                     )
-                    raise  # No reintentable
+                    raise  # propagar para que _call_gemini intente fallback
 
             is_retryable = any(str(c) in exc_str for c in _RETRYABLE_CODES)
             _log.warning(
@@ -210,7 +255,62 @@ def _call_gemini(
             if attempt < max_attempts - 1 and is_retryable:
                 time.sleep(delays[attempt])
                 continue
-            raise  # No reintentable o último intento — propagar
+            raise
+
+
+def _call_gemini(
+    prompt: "str | list",
+    model_name: str = _GEMINI_MODEL,
+    system_instruction: Optional[str] = None,
+    timeout: int = 30,
+) -> str:
+    """
+    Llama a Gemini con rate limiter, retry exponencial y fallback de modelo.
+
+    Flujo:
+      1. Verifica rate limit interno (10 llamadas/minuto)
+      2. Intenta con model_name (por defecto gemini-2.0-flash)
+      3. Si da 429 por quota diaria agotada, intenta con gemini-1.5-flash
+      4. Si ambos fallan, propaga la excepción para activar modo offline
+
+    Args:
+        prompt: String simple o lista de types.Content (para multi-turn).
+        model_name: Modelo principal a usar.
+        system_instruction: Instrucción de sistema separada (no embebida en prompt).
+        timeout: Reservado para uso futuro.
+    """
+    from google import genai  # type: ignore
+    from google.genai import types  # type: ignore
+
+    # 1. Rate limit check — lanza ValueError si se excede el límite/minuto
+    _check_and_record_call()
+
+    client = genai.Client(api_key=GEMINI_API_KEY)
+    config = types.GenerateContentConfig(
+        system_instruction=system_instruction,
+    ) if system_instruction else None
+
+    # 2. Intentar con modelo primario
+    try:
+        return _call_gemini_single(prompt, model_name, config, client)
+    except Exception as exc:
+        exc_str = str(exc)
+        # Solo intentar fallback si es quota diaria agotada en el modelo primario
+        if (("429" in exc_str or "RESOURCE_EXHAUSTED" in exc_str) and
+                model_name != _GEMINI_FALLBACK_MODEL):
+            _log.warning(
+                "[llm_service] Quota agotada en %s — intentando fallback con %s",
+                model_name, _GEMINI_FALLBACK_MODEL,
+            )
+            try:
+                return _call_gemini_single(prompt, _GEMINI_FALLBACK_MODEL, config, client)
+            except Exception as exc2:
+                _log.error(
+                    "[llm_service] Fallback %s también falló: %s",
+                    _GEMINI_FALLBACK_MODEL, str(exc2)[:200],
+                )
+                raise exc2
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -333,13 +433,16 @@ _MOCK_RISKS = [
 def test_gemini_connection() -> Tuple[bool, str]:
     """
     Verifica la conexión a Gemini con una llamada trivial.
-    Retorna (True, "OK — gemini-2.5-flash") o (False, "mensaje de error").
+    Retorna (True, "OK — gemini-2.0-flash") o (False, "mensaje de error").
     """
     if not LLM_AVAILABLE:
         return False, "GEMINI_API_KEY no configurada"
     try:
         resp = _call_gemini("Responde exactamente: OK", model_name=_GEMINI_MODEL)
         return True, f"OK — {_GEMINI_MODEL} ({len(resp)} chars)"
+    except ValueError as exc:
+        # Rate limit interno
+        return False, str(exc)
     except Exception as exc:
         return False, str(exc)[:200]
 
