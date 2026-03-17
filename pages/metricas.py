@@ -587,10 +587,26 @@ if st.session_state.get(_portfolio_ia_key):
         f'<div style="background:white;border-left:5px solid #915BD8;border-radius:0 12px 12px 0;'
         f'padding:18px 22px;box-shadow:0 4px 16px rgba(145,91,216,0.1);margin-top:8px;">'
         f'<div style="font-weight:900;color:#2C2039;margin-bottom:10px;font-size:16px;">'
-        f'🤖 Resumen ejecutivo del portfolio</div>'
+        f'Resumen ejecutivo del portfolio</div>'
         f'{st.session_state[_portfolio_ia_key]}</div>',
         unsafe_allow_html=True
     )
+    try:
+        from utils.report_generator import generate_portfolio_report_pdf
+        import datetime as _dt_pdf
+        _port_pdf = generate_portfolio_report_pdf(
+            st.session_state[_portfolio_ia_key],
+            contract_data,
+        )
+        st.download_button(
+            "📥 Exportar informe del portfolio PDF",
+            data=_port_pdf,
+            file_name=f"portfolio_unergy_{_dt_pdf.datetime.now().strftime('%Y%m%d')}.pdf",
+            mime="application/pdf",
+            key="download_portfolio_pdf",
+        )
+    except Exception as _port_err:
+        st.caption(f"PDF no disponible: {_port_err}")
 elif run_analysis:
     n_contracts = len(contract_data)
     n_rojos = risk_counts.get("ROJO", 0)

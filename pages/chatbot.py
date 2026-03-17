@@ -7,86 +7,66 @@ init_session_state()
 page_header()
 api_status_banner()
 
-# ─── Header estilo buscador ────────────────────────────────────────────────────
+# ─── Estado inicial ────────────────────────────────────────────────────────────
+if "jmc_pending_query" not in st.session_state:
+    st.session_state.jmc_pending_query = None
+
+chatbot = st.session_state.chatbot
+stats = chatbot.get_stats()
+
+# ─── Sin contratos indexados ───────────────────────────────────────────────────
+if stats["total_docs"] == 0:
+    st.markdown(
+        '<div style="text-align:center;margin:8px 0 20px 0;">'
+        '<div style="font-size:32px;font-weight:900;" class="pactora-title">💬 JuanMitaBot</div>'
+        '<div style="font-size:15px;margin-top:4px;" class="pactora-sub">Asistente legal de Unergy</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+    st.warning("Sin contratos indexados. Ve a **Ajustes** para cargar documentos.", icon="📄")
+    st.markdown("---")
+    col1, col2, col3 = st.columns(3)
+    for col, icon, title, desc in [
+        (col1, "🔍", "Búsqueda semántica", "Encuentra cláusulas en lenguaje natural"),
+        (col2, "📋", "Consulta de obligaciones", "Identifica fechas, montos y partes"),
+        (col3, "⚖️", "Revisión de riesgos", "Detecta cláusulas problemáticas"),
+    ]:
+        with col:
+            st.markdown(
+                f'<div class="factora-card" style="text-align:center;">'
+                f'<div style="font-size:28px;">{icon}</div>'
+                f'<div style="font-weight:700;margin:8px 0 4px;">{title}</div>'
+                f'<div style="font-size:13px;color:#666;">{desc}</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+    st.stop()
+
+# ─── Header ────────────────────────────────────────────────────────────────────
 modo_label = "🤖 JuanMitaBot — Modo IA" if LLM_AVAILABLE else "🤖 JuanMitaBot — Búsqueda semántica"
 modo_desc = (
-    "Respuestas generadas por Gemini sobre tus contratos"
+    "Conversación natural sobre tus contratos, potenciada por Gemini"
     if LLM_AVAILABLE else
     "Busca fragmentos relevantes en el contenido de tus contratos indexados"
 )
-st.markdown(
-    f'<div style="text-align:center;margin:8px 0 20px 0;">'
-    f'<div style="font-size:32px;font-weight:900;" class="pactora-title">{modo_label}</div>'
-    f'<div style="font-size:15px;margin-top:4px;" class="pactora-sub">{modo_desc}</div>'
-    f'</div>',
-    unsafe_allow_html=True
-)
-
-stats = st.session_state.chatbot.get_stats()
-
-if stats["total_docs"] == 0:
-    st.warning("Sin contratos indexados. Ve a **Ajustes** para cargar documentos.", icon="📄")
-
-    st.markdown("---")
-    st.markdown("#### ¿Qué podrás hacer una vez cargues contratos?")
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.markdown(
-            '<div class="factora-card" style="text-align:center;">'
-            '<div style="font-size:28px;">🔍</div>'
-            '<div style="font-weight:700;margin:8px 0 4px;">Búsqueda semántica</div>'
-            '<div style="font-size:13px;color:#666;">Encuentra cláusulas y términos en lenguaje natural</div>'
-            '</div>',
-            unsafe_allow_html=True
-        )
-    with col2:
-        st.markdown(
-            '<div class="factora-card" style="text-align:center;">'
-            '<div style="font-size:28px;">📋</div>'
-            '<div style="font-weight:700;margin:8px 0 4px;">Consulta de obligaciones</div>'
-            '<div style="font-size:13px;color:#666;">Identifica fechas, montos y partes de cada contrato</div>'
-            '</div>',
-            unsafe_allow_html=True
-        )
-    with col3:
-        st.markdown(
-            '<div class="factora-card" style="text-align:center;">'
-            '<div style="font-size:28px;">⚖️</div>'
-            '<div style="font-weight:700;margin:8px 0 4px;">Revisión de riesgos</div>'
-            '<div style="font-size:13px;color:#666;">Detecta cláusulas problemáticas en los documentos</div>'
-            '</div>',
-            unsafe_allow_html=True
-        )
-    st.stop()
-
-# ─── Barra de búsqueda central ────────────────────────────────────────────────
-col_q, col_btn, col_info = st.columns([7, 1, 1])
-with col_q:
-    query = st.text_input(
-        "buscar_juanmita",
-        placeholder="¿Cuáles son las cláusulas de terminación? ¿Cuándo vence el contrato?",
-        label_visibility="collapsed",
-        key="jmc_query"
+h_col, btn_col = st.columns([8, 2])
+with h_col:
+    st.markdown(
+        f'<div style="margin:4px 0 12px 0;">'
+        f'<span style="font-size:24px;font-weight:900;" class="pactora-title">{modo_label}</span><br>'
+        f'<span style="font-size:13px;" class="pactora-sub">{modo_desc}</span>'
+        f'</div>',
+        unsafe_allow_html=True,
     )
-with col_btn:
-    buscar = st.button("Buscar", type="primary", width="stretch")
-with col_info:
-    with st.popover("ℹ️"):
-        if LLM_AVAILABLE:
-            st.markdown(
-                "**JuanMitaBot** responde tus preguntas usando Gemini, basándose en "
-                "los contratos indexados. Las respuestas citan la fuente exacta.\n\n"
-                "🟢 **Gemini activo** — modo IA completo."
-            )
-        else:
-            st.markdown(
-                "**JuanMitaBot** busca en el texto de los contratos indexados y devuelve "
-                "los fragmentos más relevantes para tu consulta.\n\n"
-                "Escribe preguntas en lenguaje natural, términos legales o palabras clave.\n\n"
-                "⚫ **Modo búsqueda semántica** — activa Gemini API para respuestas IA."
-            )
+with btn_col:
+    st.markdown("<div style='margin-top:10px;'></div>", unsafe_allow_html=True)
+    if st.button("🗑 Nueva conversación", key="new_conv", help="Limpia el historial de esta sesión"):
+        st.session_state.chat_history = []
+        st.session_state.sidebar_chat_filter = None
+        st.session_state.sidebar_chat_title = ""
+        st.rerun()
 
-# ─── Sugerencias ──────────────────────────────────────────────────────────────
+# ─── Sugerencias rápidas ───────────────────────────────────────────────────────
 SUGERENCIAS = [
     "Fechas de vencimiento",
     "Cláusulas de penalización",
@@ -95,62 +75,102 @@ SUGERENCIAS = [
     "Fuerza mayor",
     "Renovación automática",
 ]
-
 sug_cols = st.columns(len(SUGERENCIAS))
 for col, s in zip(sug_cols, SUGERENCIAS):
-    if col.button(s, key=f"sug_{s[:12]}", width="stretch"):
-        st.session_state.jmc_query = s
+    if col.button(s, key=f"sug_{s[:14]}", help=f'Preguntar: "{s}"'):
+        st.session_state.jmc_pending_query = s
         st.rerun()
 
 st.markdown("---")
 
-# ─── Resultados ───────────────────────────────────────────────────────────────
-active_query = query or (st.session_state.get("jmc_query", "") if buscar else "")
+# ─── Layout: chat + panel lateral ─────────────────────────────────────────────
+col_chat, col_panel = st.columns([7, 3])
 
-if active_query:
-    with st.spinner("Buscando en contratos..."):
-        result = st.session_state.chatbot.ask_question(active_query)
+with col_panel:
+    with st.expander(f"📄 Contratos disponibles ({stats['total_docs']})", expanded=False):
+        for src in stats["sources"]:
+            ext = src.lower().rsplit(".", 1)[-1] if "." in src else ""
+            icon = {"pdf": "📕", "docx": "📝", "pptx": "📊", "xlsx": "📊"}.get(ext, "📄")
+            st.markdown(f"{icon} {src}", unsafe_allow_html=False)
 
-    st.caption(f'Resultados para: **{active_query}** — {stats["total_docs"]} contrato(s) consultado(s)')
-    st.markdown(result)
-
-    # Guardar historial simple en session_state
-    if "jmc_history" not in st.session_state:
-        st.session_state.jmc_history = []
-    if active_query not in st.session_state.jmc_history:
-        st.session_state.jmc_history.insert(0, active_query)
-        st.session_state.jmc_history = st.session_state.jmc_history[:10]
-
-else:
-    # Panel informativo cuando no hay búsqueda activa
-    col_left, col_right = st.columns([3, 2])
-
-    with col_left:
-        st.markdown("### Contratos disponibles")
-        for s in stats["sources"]:
-            ext = s.lower().split(".")[-1] if "." in s else ""
-            icon = "📄" if ext == "pdf" else "📝"
-            st.markdown(f"{icon} &nbsp; {s}")
-
-    with col_right:
-        st.markdown("### ¿Cómo buscar?")
+    with st.expander("💡 Cómo preguntar", expanded=False):
         st.markdown(
-            "Escribe tu consulta en lenguaje natural:\n\n"
+            "Escribe preguntas en lenguaje natural:\n\n"
             "- *¿Cuáles son las partes del contrato?*\n"
-            "- *¿Qué dice sobre penalidades por incumplimiento?*\n"
-            "- *¿Cuándo vence el plazo de ejecución?*\n"
+            "- *¿Qué dice sobre penalidades?*\n"
+            "- *¿Cuándo vence el plazo?*\n"
             "- *Muéstrame las cláusulas de fuerza mayor*\n\n"
-            "Los resultados muestran los fragmentos más relevantes de los contratos indexados.\n\n"
-            "---\n"
-            + ("*✨ Gemini activo — las respuestas están potenciadas por IA*"
+            + ("✨ **Gemini activo** — historial de conversación incluido"
                if LLM_AVAILABLE else
-               "*Activa Gemini en Ajustes para respuestas generadas por IA*")
+               "⚫ Modo semántico — activa Gemini en Ajustes para IA")
         )
 
-        # Historial de búsquedas
-        if st.session_state.get("jmc_history"):
-            st.markdown("**Búsquedas recientes:**")
-            for h in st.session_state.jmc_history[:5]:
-                if st.button(f"↩ {h}", key=f"hist_{h[:20]}", width="stretch"):
-                    st.session_state.jmc_query = h
-                    st.rerun()
+    if LLM_AVAILABLE:
+        try:
+            from core.llm_service import get_call_stats
+            _s = get_call_stats()
+            st.caption(
+                f"📊 Llamadas hoy: **{_s['calls_today']}** | "
+                f"Último min: {_s['calls_last_minute']}/{_s['rate_limit_per_minute']}"
+            )
+        except Exception:
+            pass
+
+# ─── Chat principal ─────────────────────────────────────────────────────────
+with col_chat:
+    chat_history = st.session_state.chat_history
+
+    # Mostrar historial
+    if not chat_history:
+        st.markdown(
+            '<div style="text-align:center;padding:40px 0;color:#9d87c0;">'
+            '<div style="font-size:48px;margin-bottom:12px;">💬</div>'
+            '<div style="font-size:16px;font-weight:600;">¡Hola! Soy JuanMitaBot</div>'
+            '<div style="font-size:13px;margin-top:6px;">Pregúntame sobre tus contratos indexados.<br>'
+            'Recuerdo el contexto de toda la conversación.</div>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        for i, msg in enumerate(chat_history):
+            with st.chat_message(msg["role"]):
+                content = msg["content"]
+                # Respuestas largas: mostrar fragmento + expandir
+                if msg["role"] == "assistant" and len(content) > 1200:
+                    st.markdown(content[:900] + "\n\n*…[respuesta larga, ver completa abajo]*")
+                    with st.expander("📖 Ver respuesta completa"):
+                        st.markdown(content)
+                else:
+                    st.markdown(content)
+
+    # ─── Input ────────────────────────────────────────────────────────────────
+    user_input = st.chat_input(
+        "Escribe tu pregunta..." if not chat_history else "Continúa la conversación...",
+        key="chat_main_input",
+    )
+
+    # Consumir sugerencia pendiente
+    if st.session_state.jmc_pending_query:
+        user_input = st.session_state.jmc_pending_query
+        st.session_state.jmc_pending_query = None
+
+    if user_input:
+        # Agregar mensaje del usuario
+        st.session_state.chat_history.append({"role": "user", "content": user_input})
+
+        # Últimos 6 mensajes como contexto (sin el que acabamos de agregar)
+        history_for_llm = st.session_state.chat_history[-7:-1]
+
+        # Llamar al chatbot
+        try:
+            with st.spinner("Pensando…"):
+                ans = chatbot.ask_question(
+                    user_input,
+                    filter_metadata=st.session_state.get("sidebar_chat_filter"),
+                    chat_history=history_for_llm,
+                )
+        except Exception as exc:
+            ans = f"⚠️ Error interno: {exc}"
+
+        st.session_state.chat_history.append({"role": "assistant", "content": ans})
+        st.rerun()

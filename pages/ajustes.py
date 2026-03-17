@@ -317,18 +317,33 @@ if LLM_AVAILABLE:
                 else:
                     st.error(f"❌ {_msg}")
 
+    # Cadena de modelos activa
+    _model_chain = _gstats.get("model_chain", [_gstats.get("primary_model", "?")])
+    _chain_labels = {"gemini-2.5-flash": "~20 req/día", "gemini-2.0-flash": "~1,500 req/día", "gemini-1.5-flash": "cuota alta"}
+    _chain_html = " → ".join(
+        f'<span style="background:#915BD8;color:white;border-radius:4px;padding:2px 7px;font-size:11px;margin:0 2px">'
+        f'{m} <span style="opacity:.7">({_chain_labels.get(m,"")})</span></span>'
+        for m in _model_chain
+    )
+    st.markdown(
+        f"**Cadena de modelos** (se usa el primero disponible, baja al siguiente si quota agotada):<br>{_chain_html}",
+        unsafe_allow_html=True,
+    )
+    st.caption("Cuando gemini-2.5-flash agota sus ~20 req/día, se pasa automáticamente a gemini-2.0-flash (1,500 req/día), y luego a gemini-1.5-flash.")
+
     # Contador de uso
     _calls_today = _gstats["calls_today"]
     _calls_min = _gstats["calls_last_minute"]
     _rate_max = _gstats["rate_limit_per_minute"]
     _c1, _c2, _c3 = st.columns(3)
     with _c1:
-        st.metric("Llamadas hoy", _calls_today, help="Se resetea a medianoche. gemini-2.0-flash tiene ~1,500 req/día en free tier.")
+        st.metric("Llamadas hoy", _calls_today, help="Se resetea a medianoche (contador en memoria, no persiste entre reinicios).")
     with _c2:
         st.metric("Llamadas último minuto", f"{_calls_min}/{_rate_max}", help=f"Límite interno: {_rate_max} llamadas/minuto para proteger la quota.")
     with _c3:
-        _quota_pct = min(100, int(_calls_today / 15))  # 1500 req/día → 100%
-        st.metric("Quota estimada usada", f"{_quota_pct}%", help="Estimado sobre 1,500 req/día de gemini-2.0-flash en free tier.")
+        # Quota estimada: si < 20 → puede estar en gemini-2.5-flash, si > 20 → en gemini-2.0-flash
+        _quota_pct = min(100, int(_calls_today / 15))  # referencia: 1500 req/día
+        st.metric("Quota usada (ref. 1,500/día)", f"{_quota_pct}%", help="Estimado sobre gemini-2.0-flash (1,500 req/día). Los primeros ~20 van sobre gemini-2.5-flash.")
 else:
     st.warning(
         "**⚫ Gemini no configurado** — JuanMitaBot funciona en modo búsqueda semántica local.\n\n"

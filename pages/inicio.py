@@ -8,6 +8,119 @@ init_session_state()
 page_header()
 api_status_banner()
 
+# ─── Panel de alertas de vencimiento ──────────────────────────────────────────
+def _build_alerts():
+    """
+    Categoriza los eventos del calendario por urgencia.
+    Retorna (vencidos, proximos_30, proximos_90) — listas de (date, event_dict).
+    """
+    today = datetime.date.today()
+    events = st.session_state.get("contract_events", [])
+    vencidos, prox_30, prox_90 = [], [], []
+    seen = set()  # evitar duplicados por mismo contrato+fecha
+    for e in events:
+        try:
+            d = datetime.date.fromisoformat(e.get("fecha", ""))
+        except Exception:
+            continue
+        key = (d, e.get("contrato", ""), e.get("tipo_evento", ""))
+        if key in seen:
+            continue
+        seen.add(key)
+        diff = (d - today).days
+        if diff < 0:
+            vencidos.append((d, e))
+        elif diff <= 30:
+            prox_30.append((d, e))
+        elif diff <= 90:
+            prox_90.append((d, e))
+    vencidos.sort(key=lambda x: x[0], reverse=True)   # más reciente primero
+    prox_30.sort(key=lambda x: x[0])
+    prox_90.sort(key=lambda x: x[0])
+    return vencidos, prox_30, prox_90
+
+
+def _alert_row(color: str, icon: str, label: str, items: list, prefix: str):
+    """Renderiza una fila de alerta expandible con los eventos."""
+    total = len(items)
+    with st.expander(f"{icon} **{label}** — {total} evento(s)", expanded=(total > 0 and total <= 5)):
+        for d, e in items[:20]:
+            contrato = e.get("contrato", "—")
+            tipo = e.get("tipo_evento", "hito")
+            desc = e.get("descripcion", "")
+            diff = (d - datetime.date.today()).days
+            if diff < 0:
+                tiempo = f"hace {abs(diff)} día(s)"
+            elif diff == 0:
+                tiempo = "HOY"
+            else:
+                tiempo = f"en {diff} día(s)"
+            cols = st.columns([5, 2])
+            with cols[0]:
+                st.markdown(
+                    f'<div style="border-left:3px solid {color};padding:6px 10px;'
+                    f'border-radius:0 6px 6px 0;margin-bottom:4px;">'
+                    f'<span style="font-weight:700;font-size:12px;">{d.strftime("%d/%m/%Y")}</span>'
+                    f' <span style="color:#999;font-size:11px;">({tiempo})</span><br>'
+                    f'<span style="font-size:12px;">{contrato[:50]}</span>'
+                    + (f'<br><span style="font-size:11px;color:#777;">{desc[:80]}</span>' if desc else "")
+                    + f'<br><span style="background:{color};color:white;border-radius:3px;'
+                    f'padding:1px 5px;font-size:10px;">{tipo.upper()}</span>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+            with cols[1]:
+                if st.button("📚 Ver", key=f"{prefix}_{d}_{contrato[:12]}", help="Abrir en Biblioteca"):
+                    st.session_state["library_selected"] = contrato
+                    st.session_state["sidebar_chat_filter"] = {"source": contrato}
+                    st.session_state["sidebar_chat_title"] = contrato
+                    st.switch_page("pages/biblioteca.py")
+
+
+_today = datetime.date.today()
+_vencidos, _prox_30, _prox_90 = _build_alerts()
+_total_alertas = len(_vencidos) + len(_prox_30) + len(_prox_90)
+_events_exist = len(st.session_state.get("contract_events", [])) > 0
+
+# Guardar total en session para badge del sidebar
+st.session_state["_alertas_total"] = _total_alertas
+
+if _events_exist:
+    if _total_alertas == 0:
+        st.success("Sin alertas de vencimiento — todos los contratos están al día.", icon="✅")
+    else:
+        st.markdown(
+            f'<div style="background:#fff8f0;border:1px solid #ffd0a0;border-radius:10px;'
+            f'padding:12px 18px;margin-bottom:12px;">'
+            f'<span style="font-weight:900;font-size:15px;color:#e65100;">🔔 Alertas de vencimiento</span>'
+            f' <span style="background:#e53935;color:white;border-radius:10px;'
+            f'padding:1px 8px;font-size:12px;font-weight:700;">{_total_alertas}</span>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+        _a1, _a2, _a3 = st.columns(3)
+        with _a1:
+            if _vencidos:
+                _alert_row("#e53935", "🔴", "Vencidos", _vencidos, "venc")
+            else:
+                st.success("Sin vencidos", icon="🟢")
+        with _a2:
+            if _prox_30:
+                _alert_row("#f57c00", "🟠", "Vencen en ≤ 30 días", _prox_30, "p30")
+            else:
+                st.success("Sin vencimientos próximos (30 días)", icon="🟢")
+        with _a3:
+            if _prox_90:
+                _alert_row("#f9a825", "🟡", "Vencen en 31–90 días", _prox_90, "p90")
+            else:
+                st.success("Sin vencimientos (31–90 días)", icon="🟢")
+        st.markdown("---")
+else:
+    st.info(
+        "Sin alertas — indexa contratos con fechas en **Calendario → Extraer fechas** para activar alertas.",
+        icon="📅",
+    )
+
 
 def _mini_calendar(year, month, event_days, dark=False):
     """Renderiza calendario mensual en HTML."""

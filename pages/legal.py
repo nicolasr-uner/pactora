@@ -284,9 +284,24 @@ with tab_biblioteca:
 
             if cached_risk:
                 _render_risk_result(cached_risk)
-                if st.button("🔄 Re-analizar", key="reanalyze_risk", width="stretch"):
-                    del st.session_state[risk_key]
-                    st.rerun()
+                _exp_col, _rerun_col = st.columns([1, 1])
+                with _exp_col:
+                    try:
+                        from utils.report_generator import generate_risk_report_pdf
+                        _pdf_bytes = generate_risk_report_pdf(cached_risk, selected_src)
+                        st.download_button(
+                            "📥 Exportar informe PDF",
+                            data=_pdf_bytes,
+                            file_name=f"riesgo_{selected_src.rsplit('.', 1)[0]}_{datetime.datetime.now().strftime('%Y%m%d')}.pdf",
+                            mime="application/pdf",
+                            key="download_risk_pdf",
+                        )
+                    except Exception as _pdf_err:
+                        st.caption(f"PDF no disponible: {_pdf_err}")
+                with _rerun_col:
+                    if st.button("🔄 Re-analizar", key="reanalyze_risk", width="stretch"):
+                        del st.session_state[risk_key]
+                        st.rerun()
             else:
                 btn_label = "🔍 Analizar riesgos con IA" if LLM_AVAILABLE else "📊 Analizar riesgos (local)"
                 if st.button(btn_label, key="analyze_risk_btn", width="stretch", type="primary"):
@@ -679,12 +694,31 @@ with tab_compare:
                     "diff_result", value=diff_text, height=350,
                     disabled=True, label_visibility="collapsed"
                 )
-                st.download_button(
-                    "⬇ Exportar comparación",
-                    data=diff_text.encode("utf-8"),
-                    file_name=f"comparacion_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.txt",
-                    mime="text/plain"
-                )
+                _cmp_dl1, _cmp_dl2 = st.columns(2)
+                with _cmp_dl1:
+                    try:
+                        from utils.report_generator import generate_comparison_report_pdf
+                        _cmp_ia_text = st.session_state.get(f"cmp_ia_{contract_left}_{contract_right}", "")
+                        _cmp_pdf = generate_comparison_report_pdf(
+                            contract_left, contract_right, similarity_pct, diff_text, _cmp_ia_text
+                        )
+                        st.download_button(
+                            "📥 Exportar comparación PDF",
+                            data=_cmp_pdf,
+                            file_name=f"comparacion_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+                            mime="application/pdf",
+                            key="download_cmp_pdf",
+                        )
+                    except Exception as _cmp_err:
+                        st.caption(f"PDF no disponible: {_cmp_err}")
+                with _cmp_dl2:
+                    st.download_button(
+                        "⬇ Exportar diff (.txt)",
+                        data=diff_text.encode("utf-8"),
+                        file_name=f"comparacion_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.txt",
+                        mime="text/plain",
+                        key="download_cmp_txt",
+                    )
             else:
                 st.success("Los documentos son idénticos en el fragmento analizado.")
 

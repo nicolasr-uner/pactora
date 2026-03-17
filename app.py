@@ -42,8 +42,9 @@ pg = st.navigation({
         st.Page("pages/plantillas.py",  title="Plantillas",     icon="📄"),
     ],
     "Analisis": [
-        st.Page("pages/metricas.py",    title="Metricas",       icon="📊"),
-        st.Page("pages/calendario.py",  title="Calendario",     icon="📅"),
+        st.Page("pages/metricas.py",    title="Metricas",         icon="📊"),
+        st.Page("pages/calendario.py",  title="Calendario",       icon="📅"),
+        st.Page("pages/normativo.py",   title="Gestor Normativo", icon="⚖"),
     ],
     "Sistema": [
         st.Page("pages/ajustes.py",     title="Ajustes",        icon="⚙"),

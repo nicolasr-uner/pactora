@@ -90,6 +90,7 @@ def get_call_stats() -> Dict[str, Any]:
             "rate_limit_per_minute": _RATE_LIMIT_MAX,
             "primary_model": _GEMINI_MODEL,
             "fallback_model": _GEMINI_FALLBACK_MODEL,
+            "model_chain": _GEMINI_MODEL_CHAIN,
         }
 
 # ---------------------------------------------------------------------------
@@ -125,9 +126,18 @@ if LLM_AVAILABLE:
         _log.warning("[llm_service] No se pudo importar google-genai: %s", e)
         LLM_AVAILABLE = False
 
-# Modelos Gemini — primario con mejor quota (1,500 req/día en free tier)
-_GEMINI_MODEL = "gemini-2.0-flash"
-_GEMINI_FALLBACK_MODEL = "gemini-1.5-flash"  # fallback si 2.0 da 429 por quota diaria
+# Cadena de modelos Gemini — de más inteligente a más disponible.
+# Se intenta en orden: cuando uno agota su quota diaria (429), se baja al siguiente.
+# gemini-2.5-flash: más inteligente, ~20 req/día free tier
+# gemini-2.0-flash: muy bueno, ~1,500 req/día free tier
+# gemini-1.5-flash: quota muy generosa — último recurso antes de modo offline
+_GEMINI_MODEL_CHAIN = [
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+    "gemini-1.5-flash",
+]
+_GEMINI_MODEL = _GEMINI_MODEL_CHAIN[0]          # alias para compatibilidad y display
+_GEMINI_FALLBACK_MODEL = _GEMINI_MODEL_CHAIN[-1]  # alias para display en Ajustes
 
 
 # ---------------------------------------------------------------------------
@@ -265,17 +275,18 @@ def _call_gemini(
     timeout: int = 30,
 ) -> str:
     """
-    Llama a Gemini con rate limiter, retry exponencial y fallback de modelo.
+    Llama a Gemini con rate limiter y fallback automático por cadena de modelos.
 
     Flujo:
-      1. Verifica rate limit interno (10 llamadas/minuto)
-      2. Intenta con model_name (por defecto gemini-2.0-flash)
-      3. Si da 429 por quota diaria agotada, intenta con gemini-1.5-flash
-      4. Si ambos fallan, propaga la excepción para activar modo offline
+      1. Verifica rate limit interno (10 llamadas/minuto).
+      2. Recorre _GEMINI_MODEL_CHAIN desde model_name hacia abajo:
+         gemini-2.5-flash → gemini-2.0-flash → gemini-1.5-flash
+      3. Si el modelo activo devuelve 429 (quota agotada), baja al siguiente.
+      4. Si todos fallan o el error no es de quota, propaga la excepción.
 
     Args:
         prompt: String simple o lista de types.Content (para multi-turn).
-        model_name: Modelo principal a usar.
+        model_name: Modelo desde el que iniciar la cadena (por defecto el primero).
         system_instruction: Instrucción de sistema separada (no embebida en prompt).
         timeout: Reservado para uso futuro.
     """
@@ -290,27 +301,35 @@ def _call_gemini(
         system_instruction=system_instruction,
     ) if system_instruction else None
 
-    # 2. Intentar con modelo primario
-    try:
-        return _call_gemini_single(prompt, model_name, config, client)
-    except Exception as exc:
-        exc_str = str(exc)
-        # Solo intentar fallback si es quota diaria agotada en el modelo primario
-        if (("429" in exc_str or "RESOURCE_EXHAUSTED" in exc_str) and
-                model_name != _GEMINI_FALLBACK_MODEL):
-            _log.warning(
-                "[llm_service] Quota agotada en %s — intentando fallback con %s",
-                model_name, _GEMINI_FALLBACK_MODEL,
+    # 2. Recorrer la cadena de modelos de más a menos capaz.
+    # Si model_name no está en la cadena, se agrega al inicio como modelo extra.
+    chain = _GEMINI_MODEL_CHAIN[:]
+    if model_name not in chain:
+        chain.insert(0, model_name)
+    else:
+        # Empezar desde el modelo solicitado (no necesariamente el primero)
+        start_idx = chain.index(model_name)
+        chain = chain[start_idx:]
+
+    last_exc: Exception = RuntimeError("Sin modelos disponibles")
+    for current_model in chain:
+        try:
+            return _call_gemini_single(prompt, current_model, config, client)
+        except Exception as exc:
+            exc_str = str(exc)
+            is_quota_exhausted = (
+                ("429" in exc_str or "RESOURCE_EXHAUSTED" in exc_str)
+                and "API_KEY_HTTP_REFERRER_BLOCKED" not in exc_str
             )
-            try:
-                return _call_gemini_single(prompt, _GEMINI_FALLBACK_MODEL, config, client)
-            except Exception as exc2:
-                _log.error(
-                    "[llm_service] Fallback %s también falló: %s",
-                    _GEMINI_FALLBACK_MODEL, str(exc2)[:200],
+            if is_quota_exhausted and current_model != chain[-1]:
+                _log.warning(
+                    "[llm_service] Quota agotada en %s — bajando al siguiente modelo.",
+                    current_model,
                 )
-                raise exc2
-        raise
+                last_exc = exc
+                continue  # intentar con el siguiente en la cadena
+            raise  # error no recuperable o último modelo — propagar
+    raise last_exc
 
 
 # ---------------------------------------------------------------------------
@@ -432,19 +451,25 @@ _MOCK_RISKS = [
 
 def test_gemini_connection() -> Tuple[bool, str]:
     """
-    Verifica la conexión a Gemini con una llamada trivial.
-    Retorna (True, "OK — gemini-2.0-flash") o (False, "mensaje de error").
+    Verifica la conexión recorriendo la cadena de modelos hasta que uno responda.
+    Retorna (True, "OK — gemini-2.5-flash (activo)") o (False, "mensaje de error").
     """
     if not LLM_AVAILABLE:
         return False, "GEMINI_API_KEY no configurada"
-    try:
-        resp = _call_gemini("Responde exactamente: OK", model_name=_GEMINI_MODEL)
-        return True, f"OK — {_GEMINI_MODEL} ({len(resp)} chars)"
-    except ValueError as exc:
-        # Rate limit interno
-        return False, str(exc)
-    except Exception as exc:
-        return False, str(exc)[:200]
+    client = _get_client()
+    if client is None:
+        return False, "No se pudo inicializar el cliente Gemini"
+    for model in _GEMINI_MODEL_CHAIN:
+        try:
+            resp = _call_gemini_single("Responde exactamente: OK", model, None, client)
+            return True, f"OK — {model} (activo, {len(resp)} chars)"
+        except Exception as exc:
+            exc_str = str(exc)
+            is_quota = "429" in exc_str or "RESOURCE_EXHAUSTED" in exc_str
+            if is_quota and model != _GEMINI_MODEL_CHAIN[-1]:
+                continue  # intentar siguiente modelo
+            return False, f"{model}: {exc_str[:200]}"
+    return False, "Todos los modelos agotaron su quota"
 
 
 def extract_contract_metrics(text: str, contract_type: str = "General") -> dict:
@@ -484,6 +509,14 @@ def analyze_risk(text: str, contract_type: str = "General") -> dict:
     """
     if LLM_AVAILABLE:
         try:
+            # Incluir contexto normativo aplicable al tipo de contrato
+            _normativa_ctx = ""
+            try:
+                from core.normativa_db import get_normativa_summary_for_prompt
+                _normativa_ctx = "\n\n" + get_normativa_summary_for_prompt(contract_type)
+            except Exception:
+                pass
+
             prompt = (
                 f"Eres un Compliance Officer experto en energía solar colombiana.\n"
                 f"Analiza el riesgo del siguiente contrato tipo {contract_type}.\n\n"
@@ -492,7 +525,8 @@ def analyze_risk(text: str, contract_type: str = "General") -> dict:
                 '"risks" (lista de objetos con level, clause, reason, action), '
                 '"compliance_score" (0-100), "summary".\n'
                 "Solo JSON, sin markdown.\n\n"
-                f"Contrato:\n{text[:8000]}"
+                + (_normativa_ctx if _normativa_ctx else "")
+                + f"\nContrato:\n{text[:8000]}"
             )
             raw = _call_gemini(prompt)
             return json.loads(_clean_json_response(raw))
