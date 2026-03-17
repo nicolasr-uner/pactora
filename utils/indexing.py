@@ -208,12 +208,23 @@ def _bg_startup_index(api_key, drive_root_id, drive_api_key):
             except Exception as re:
                 log.warning("[restore] No se pudieron cargar sources: %s", re)
         else:
-            if index_meta:
+            # Verificar si ChromaDB realmente tiene documentos
+            try:
+                chroma_count = chatbot.get_stats().get("total_docs", 0)
+            except Exception:
+                chroma_count = 0
+
+            if chroma_count > 0 and index_meta:
+                # ChromaDB tiene datos propios — el JSON es confiable como guía diferencial
                 for fname in index_meta:
                     if fname not in chatbot._indexed_sources:
                         chatbot._indexed_sources.append(fname)
                 log.info("[restore] _indexed_sources desde metadata JSON: %d entradas",
                          len(chatbot._indexed_sources))
+            else:
+                # ChromaDB vacío — el JSON está desincronizado, re-indexar todo desde Drive
+                log.info("[restore] ChromaDB vacío sin backup — ignorando metadata local, se re-indexará todo.")
+                index_meta = {}
 
         log.info("Iniciando indexacion de Drive (carpeta: %s)", drive_root_id)
         all_files = get_recursive_files(drive_root_id, api_key=drive_api_key)
