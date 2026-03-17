@@ -208,19 +208,21 @@ def _bg_startup_index(api_key, drive_root_id, drive_api_key):
             except Exception as re:
                 log.warning("[restore] No se pudieron cargar sources: %s", re)
         else:
-            # ChromaDB vacío (no hay backup) — NO poblar _indexed_sources desde index_meta,
-            # ya que los documentos no están en el vectorstore aunque estén en el JSON.
-            # Todos los archivos de Drive deben re-indexarse.
-            log.info("[restore] Sin backup de ChromaDB — se re-indexarán todos los archivos.")
+            if index_meta:
+                for fname in index_meta:
+                    if fname not in chatbot._indexed_sources:
+                        chatbot._indexed_sources.append(fname)
+                log.info("[restore] _indexed_sources desde metadata JSON: %d entradas",
+                         len(chatbot._indexed_sources))
 
         log.info("Iniciando indexacion de Drive (carpeta: %s)", drive_root_id)
         all_files = get_recursive_files(drive_root_id, api_key=drive_api_key)
         log.info("Archivos encontrados en Drive: %d", len(all_files))
 
-        # Solo omitir archivos que ya están en _indexed_sources (confirmado en ChromaDB)
         files_to_index = [
             f for f in all_files
             if f["name"] not in chatbot._indexed_sources
+            and f["name"] not in index_meta
         ]
         already = len(all_files) - len(files_to_index)
         if already:
