@@ -113,7 +113,7 @@ def render_document_preview(source_name: str, height: int = 660):
                 try:
                     import pandas as _pd
                     df = _pd.read_excel(_io.BytesIO(file_bytes), nrows=200)
-                    st.dataframe(df, use_container_width=True, height=height)
+                    st.dataframe(df, width="stretch", height=height)
                     st.download_button(
                         "⬇ Descargar Excel", data=file_bytes,
                         file_name=source_name, key=f"dl_xlsx_drv_{drive_id}",
@@ -129,7 +129,7 @@ def render_document_preview(source_name: str, height: int = 660):
                         _io2.StringIO(file_bytes.decode("utf-8", errors="replace")),
                         nrows=200,
                     )
-                    st.dataframe(df, use_container_width=True, height=height)
+                    st.dataframe(df, width="stretch", height=height)
                     return
                 except Exception as _e:
                     st.warning(f"No se pudo mostrar como tabla: {_e}")

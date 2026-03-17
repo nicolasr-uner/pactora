@@ -162,7 +162,7 @@ with tab_cruce:
             st.markdown(f"**Contrato:** {cruce['contrato']} | **Tipo detectado:** {cruce['tipo']}")
             import pandas as _pd
             df = _pd.DataFrame(cruce["rows"])[["Norma","Tipo","Mencionada","Estado","Resumen"]]
-            st.dataframe(df, use_container_width=True, hide_index=True)
+            st.dataframe(df, width="stretch", hide_index=True)
 
             _mencionadas = sum(1 for r in cruce["rows"] if r["Mencionada"]=="Sí")
             _total = len(cruce["rows"])
@@ -305,7 +305,7 @@ with tab_compliance:
             _df_comp["Estado"] = _df_comp["score"].apply(
                 lambda x: "✅ Bueno" if x>=60 else "⚠️ Revisar" if x>=30 else "❌ Bajo")
             st.dataframe(_df_comp[["contrato","tipo","menciones","normas","Score","Estado"]],
-                         use_container_width=True, hide_index=True)
+                         width="stretch", hide_index=True)
 
             _avg = int(sum(d["score"] for d in comp_data)/len(comp_data)) if comp_data else 0
             mc1,mc2,mc3 = st.columns(3)

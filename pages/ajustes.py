@@ -70,7 +70,7 @@ with st.expander("🔧 Diagnóstico del sistema", expanded=False):
                     }
                     for k, v in _imeta.items()
                 ]
-                st.dataframe(_pd_diag.DataFrame(_meta_rows), use_container_width=True, hide_index=True)
+                st.dataframe(_pd_diag.DataFrame(_meta_rows), width="stretch", hide_index=True)
     except Exception:
         pass
 
