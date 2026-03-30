@@ -16,8 +16,6 @@ if sys.version_info >= (3, 14):
         _pv1m.ModelMetaclass.__new__ = _patched_metaclass_new
 
 import streamlit as st
-from utils.shared import init_session_state, juanmitabot_sidebar, dark_mode_toggle
-from utils.auth import require_auth, is_admin
 
 st.set_page_config(
     page_title="Pactora CLM — Unergy",
@@ -25,18 +23,103 @@ st.set_page_config(
     layout="wide"
 )
 
-# Bloquear acceso si no está autenticado/autorizado
-require_auth()
+# ─── Auth gate ────────────────────────────────────────────────────────────────
+# Verificar autenticación ANTES de cualquier otra cosa.
+# Si st.user no está disponible (auth no configurada), se muestra una advertencia
+# pero se permite el acceso para no romper entornos de desarrollo local.
 
-# Inicializar estado global (chatbot, session_state defaults) una sola vez por carga
+_auth_configured = False
+try:
+    _auth_configured = hasattr(st, "user") and hasattr(st.user, "is_logged_in")
+except Exception:
+    pass
+
+if _auth_configured:
+    if not st.user.is_logged_in:
+        # ── Página de inicio de sesión ─────────────────────────────────────
+        st.markdown(
+            """
+            <style>
+            [data-testid="stSidebar"] { display: none; }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            '<div style="text-align:center;margin-top:80px;">'
+            '<div style="font-family:Lato,sans-serif;font-weight:900;font-size:56px;">Pactora</div>'
+            '<div style="font-weight:600;font-size:18px;color:#9d87c0;margin-bottom:8px;">by Unergy</div>'
+            '<div style="color:#666;margin-bottom:40px;font-size:15px;">'
+            'Gestión inteligente de contratos de energía renovable'
+            '</div>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+        col1, col2, col3 = st.columns([2, 1, 2])
+        with col2:
+            st.button(
+                "🔐  Iniciar sesión con Google",
+                on_click=st.login,
+                args=("google",),
+                type="primary",
+                use_container_width=True,
+            )
+        st.stop()
+
+    # ── Verificar whitelist ────────────────────────────────────────────────
+    try:
+        from utils.auth_manager import is_authorized, is_admin, get_user_permissions
+
+        _email = st.user.email or ""
+        if not is_authorized(_email):
+            st.markdown(
+                """
+                <style>
+                [data-testid="stSidebar"] { display: none; }
+                </style>
+                """,
+                unsafe_allow_html=True,
+            )
+            st.error("⛔ **Acceso denegado**", icon="🔒")
+            st.markdown(
+                f"Tu cuenta **{_email}** no está autorizada para acceder a Pactora CLM.  \n"
+                "Contacta al administrador para solicitar acceso."
+            )
+            col_a, col_b, _ = st.columns([1, 1, 4])
+            with col_a:
+                st.button("Cerrar sesión", on_click=st.logout)
+            st.stop()
+
+        # Guardar contexto del usuario en session_state
+        if "current_user_email" not in st.session_state:
+            st.session_state.current_user_email = _email
+            st.session_state.current_user_is_admin = is_admin(_email)
+            st.session_state.current_user_permissions = get_user_permissions(_email)
+
+    except Exception as _auth_err:
+        # Si auth_manager falla (ej. Drive no disponible), loggear pero no bloquear
+        import logging
+        logging.getLogger("pactora").error("[app] auth_manager error: %s", _auth_err)
+
+# ─── Inicialización y sidebar ─────────────────────────────────────────────────
+
+from utils.shared import init_session_state, juanmitabot_sidebar, dark_mode_toggle
+
 init_session_state()
-
-# Sidebar persistente con JuanMitaBot en todas las páginas
 dark_mode_toggle()
 juanmitabot_sidebar()
 
-# Páginas de sistema dinámicas
-admin_pages = [st.Page("pages/admin.py", title="Administración", icon="🔐")] if is_admin() else []
+# ─── Navegación ───────────────────────────────────────────────────────────────
+
+_is_admin = st.session_state.get("current_user_is_admin", False)
+
+_sistema_pages = [
+    st.Page("pages/ajustes.py", title="Ajustes", icon="⚙"),
+]
+if _is_admin:
+    _sistema_pages.append(
+        st.Page("pages/admin.py", title="Administración", icon="🔑")
+    )
 
 pg = st.navigation({
     "Principal": [
@@ -53,9 +136,6 @@ pg = st.navigation({
         st.Page("pages/calendario.py",  title="Calendario",       icon="📅"),
         st.Page("pages/normativo.py",   title="Gestor Normativo", icon="⚖"),
     ],
-    "Sistema": [
-        st.Page("pages/ajustes.py",     title="Ajustes",        icon="⚙"),
-        *admin_pages,
-    ],
+    "Sistema": _sistema_pages,
 })
 pg.run()

@@ -1,139 +1,273 @@
-import streamlit as st
-from datetime import datetime
-from utils.shared import apply_styles, page_header, init_session_state
-from utils.auth import load_users_config, save_users_config, is_admin
-from utils.drive_manager import get_folder_contents
+"""
+admin.py — Panel de administración de Pactora CLM.
 
-# Verificación de seguridad adicional
-if not is_admin():
-    st.error("No tienes permisos para ver esta página.")
-    st.stop()
+Solo accesible para usuarios con rol "admin".
+Permite gestionar la whitelist de usuarios y sus permisos de contratos.
+"""
+
+import streamlit as st
+from utils.shared import apply_styles, page_header, init_session_state
+from utils.auth_manager import (
+    get_all_users,
+    add_user,
+    remove_user,
+    update_user_permissions,
+    CONTRACT_TYPES,
+    is_admin,
+)
 
 apply_styles()
 init_session_state()
-page_header()
 
-st.markdown("## 🔐 Panel de Administración")
-st.markdown("Gestiona los usuarios que tienen acceso a Pactora CLM y sus permisos.")
+# ─── Verificación de acceso ───────────────────────────────────────────────────
 
-config = load_users_config()
-users = config.get("users", {})
+try:
+    _logged_in = st.user.is_logged_in
+    _user_email = st.user.email if _logged_in else ""
+except Exception:
+    _logged_in = False
+    _user_email = ""
 
-col1, col2 = st.columns([8, 2])
-with col1:
-    st.subheader(f"Usuarios Registrados ({len(users)})")
+if not _logged_in:
+    st.error("Debes iniciar sesión para acceder a esta página.")
+    st.stop()
 
-# --- Añadir nuevo usuario ---
-with st.expander("➕ Añadir Nuevo Usuario"):
-    with st.form("new_user_form", clear_on_submit=True):
-        n_email = st.text_input("Correo Electrónico (Google Workspace)")
-        n_name = st.text_input("Nombre Completo")
-        n_role = st.selectbox("Rol", ["viewer", "admin"])
-        
-        if st.form_submit_button("Registrar Usuario", type="primary"):
-            n_email = n_email.strip().lower()
-            if n_email and "@" in n_email:
-                if n_email in users:
-                    st.warning("Este usuario ya está registrado.")
+if not is_admin(_user_email):
+    st.error("⛔ Acceso denegado. Esta sección es exclusiva para administradores.")
+    st.caption(f"Tu correo ({_user_email}) no tiene permisos de administrador.")
+    st.stop()
+
+# ─── Header ───────────────────────────────────────────────────────────────────
+
+page_header("Administración de Acceso")
+
+st.markdown("## Panel de Administración")
+st.caption(
+    "Gestiona quién puede acceder a Pactora CLM y qué contratos puede ver cada usuario. "
+    "Los cambios se guardan automáticamente en Google Drive."
+)
+
+# ─── Helpers ─────────────────────────────────────────────────────────────────
+
+def _role_badge(role: str) -> str:
+    if role == "admin":
+        return "🔑 Admin"
+    return "👁 Viewer"
+
+
+def _types_display(allowed: list) -> str:
+    if not allowed or "*" in allowed:
+        return "✅ Todos"
+    return ", ".join(allowed)
+
+
+# ─── Tab layout ───────────────────────────────────────────────────────────────
+
+tab_users, tab_add, tab_perms = st.tabs([
+    "👥 Usuarios autorizados",
+    "➕ Agregar usuario",
+    "🔧 Editar permisos",
+])
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# TAB 1 — Lista de usuarios
+# ════════════════════════════════════════════════════════════════════════════════
+
+with tab_users:
+    st.markdown("### Usuarios con acceso")
+
+    col_reload, _ = st.columns([1, 5])
+    with col_reload:
+        if st.button("🔄 Recargar", key="reload_users"):
+            from utils.auth_manager import _invalidate_cache
+            _invalidate_cache()
+            st.rerun()
+
+    users = get_all_users(force_reload=False)
+    active_users = [u for u in users if u.get("active", True)]
+
+    if not active_users:
+        st.info("No hay usuarios autorizados aún. Usa la pestaña **Agregar usuario** para comenzar.")
+    else:
+        # Tabla de usuarios
+        import pandas as pd
+
+        rows = []
+        for u in active_users:
+            rows.append({
+                "Correo":             u["email"],
+                "Rol":                _role_badge(u.get("role", "viewer")),
+                "Tipos de contrato":  _types_display(u.get("allowed_types", ["*"])),
+                "Agregado por":       u.get("added_by", "—"),
+                "Fecha":              u.get("added_at", "—")[:10],
+            })
+        df = pd.DataFrame(rows)
+        st.dataframe(df, use_container_width=True, hide_index=True)
+
+        st.markdown("---")
+        st.markdown("#### Eliminar usuario")
+        st.caption("El usuario perderá acceso inmediatamente (no se puede deshacer desde aquí).")
+
+        emails_removable = [
+            u["email"] for u in active_users
+            if u["email"] != _user_email   # no te puedes eliminar a ti mismo
+        ]
+        if not emails_removable:
+            st.info("No hay otros usuarios para eliminar.")
+        else:
+            email_to_remove = st.selectbox(
+                "Seleccionar usuario a eliminar",
+                options=emails_removable,
+                key="remove_select",
+            )
+            if st.button("🗑 Eliminar acceso", type="primary", key="btn_remove"):
+                ok, msg = remove_user(email_to_remove)
+                if ok:
+                    st.success(f"Usuario '{email_to_remove}' eliminado correctamente.")
+                    st.rerun()
                 else:
-                    users[n_email] = {
-                        "name": n_name.strip() or "Usuario Invitado",
-                        "active": True,
-                        "role": n_role,
-                        "allowed_folders": ["all"],
-                        "allowed_contract_types": ["all"],
-                        "added_at": datetime.utcnow().isoformat() + "Z",
-                        "added_by": getattr(getattr(st, "user", None), "email", "system")
-                    }
-                    if n_role == "admin" and n_email not in config.get("admins", []):
-                        if "admins" not in config:
-                            config["admins"] = []
-                        config["admins"].append(n_email)
-                    save_users_config(config)
-                    st.success(f"Usuario {n_email} registrado exitosamente.")
-                    st.rerun()
+                    st.error(f"Error: {msg}")
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# TAB 2 — Agregar usuario
+# ════════════════════════════════════════════════════════════════════════════════
+
+with tab_add:
+    st.markdown("### Agregar usuario")
+    st.caption(
+        "El usuario debe autenticarse con Google (OAuth). "
+        "Su correo exacto debe aparecer aquí para que el sistema le permita entrar."
+    )
+
+    with st.form("form_add_user", clear_on_submit=True):
+        new_email = st.text_input(
+            "Correo electrónico de Google",
+            placeholder="usuario@ejemplo.com",
+        )
+        new_role = st.radio(
+            "Rol",
+            options=["viewer", "admin"],
+            format_func=lambda r: "👁 Viewer — solo lectura" if r == "viewer" else "🔑 Admin — acceso total + administración",
+            horizontal=True,
+        )
+
+        st.markdown("**Tipos de contrato permitidos**")
+        all_types_toggle = st.checkbox("✅ Todos los tipos", value=True, key="add_all_types")
+        if not all_types_toggle:
+            selected_types = st.multiselect(
+                "Seleccionar tipos específicos",
+                options=CONTRACT_TYPES,
+                key="add_types_select",
+            )
+        else:
+            selected_types = ["*"]
+
+        submitted = st.form_submit_button("Agregar usuario", type="primary")
+
+    if submitted:
+        if not new_email or "@" not in new_email:
+            st.error("Ingresa un correo válido.")
+        else:
+            ok, msg = add_user(
+                email=new_email,
+                role=new_role,
+                allowed_types=selected_types if selected_types else ["*"],
+                added_by=_user_email,
+            )
+            if ok:
+                st.success(f"✅ '{new_email}' agregado como **{new_role}** con tipos: {_types_display(selected_types)}.")
+                st.rerun()
             else:
-                st.error("Ingresa un correo válido.")
+                st.error(f"No se pudo agregar: {msg}")
 
-st.divider()
 
-# --- Tabla/Lista de Usuarios ---
-# Listado de carpetas raíz (se usa en edición de permisos)
-root_id = st.secrets.get("DRIVE_ROOT_FOLDER_ID", "")
-available_folders = get_folder_contents(root_id) if root_id else []
+# ════════════════════════════════════════════════════════════════════════════════
+# TAB 3 — Editar permisos
+# ════════════════════════════════════════════════════════════════════════════════
 
-for email, data in users.items():
-    with st.container(border=True):
-        c1, c2, c3, c4 = st.columns([3, 2, 2, 2])
-        
-        status_icon = "🟢" if data.get("active") else "🔴"
-        role_label = "Administrador" if data.get("role") == "admin" else "Visor"
-        c1.markdown(f"**{data.get('name', 'Sin Nombre')}**<br><span style='font-size:0.8em;color:gray'>{email}</span>", unsafe_allow_html=True)
-        c2.markdown(f"{status_icon} **{role_label}**")
-        
-        access_lbl = "Acceso Completo" if "all" in data.get("allowed_folders", []) else f"{len(data.get('allowed_folders', []))} Carpeta(s)"
-        c3.markdown(f"📂 {access_lbl}")
-        
-        with c4:
-            if st.popover(f"⚙️ Editar"):
-                st.write(f"### Permisos de {email}")
-                
-                new_active = st.toggle("Cuenta Activa", value=data.get("active", False), key=f"act_{email}")
-                new_role = st.selectbox("Rol", ["viewer", "admin"], index=0 if data.get("role") != "admin" else 1, key=f"rol_{email}")
-                
-                st.subheader("Acceso a Carpetas (Raíz Pactora)")
-                all_folders = st.checkbox("Acceso Total a TODAS las carpetas", value="all" in data.get("allowed_folders", ["all"]), key=f"allf_{email}")
-                
-                selected_folders = []
-                if not all_folders:
-                    curr_selected = data.get("allowed_folders", [])
-                    st.write("Seleciona las carpetas permitidas:")
-                    for f in available_folders:
-                        # Si es carpeta, mostrar
-                        if f.get("mimeType") == "application/vnd.google-apps.folder":
-                            val = f["id"] in curr_selected
-                            if st.checkbox(f"📁 {f['name']}", value=val, key=f"fchk_{email}_{f['id']}"):
-                                selected_folders.append(f["id"])
-                
-                st.subheader("Tipos de Contrato Permitidos")
-                all_types = st.checkbox("Todos los tipos", value="all" in data.get("allowed_contract_types", ["all"]), key=f"allt_{email}")
-                
-                selected_types = []
-                if not all_types:
-                    curr_types = data.get("allowed_contract_types", [])
-                    t_options = {"pdf": "PDF", "docx": "Word", "xlsx": "Excel", "txt": "Texto"}
-                    cols = st.columns(4)
-                    i = 0
-                    for ext, lbl in t_options.items():
-                        val = ext in curr_types
-                        if cols[i%4].checkbox(lbl, value=val, key=f"tchk_{email}_{ext}"):
-                            selected_types.append(ext)
-                        i += 1
-                
-                if st.button("Guardar Cambios", type="primary", key=f"save_{email}"):
-                    data["active"] = new_active
-                    data["role"] = new_role
-                    
-                    if all_folders:
-                        data["allowed_folders"] = ["all"]
-                    else:
-                        data["allowed_folders"] = selected_folders
-                        
-                    if all_types:
-                        data["allowed_contract_types"] = ["all"]
-                    else:
-                        data["allowed_contract_types"] = selected_types
-                    
-                    # Logica extra para cambiar admins list
-                    if new_role == "admin" and email not in config.get("admins", []):
-                        if "admins" not in config: config["admins"] = []
-                        config["admins"].append(email)
-                    elif new_role != "admin" and email in config.get("admins", []):
-                        config["admins"].remove(email)
-                        
-                    users[email] = data
-                    save_users_config(config)
-                    st.success("Permisos guardados.")
+with tab_perms:
+    st.markdown("### Editar permisos de usuario")
+    st.caption("Cambia el rol o los tipos de contratos que puede ver un usuario existente.")
+
+    users_for_edit = get_all_users(force_reload=False)
+    active_for_edit = [u for u in users_for_edit if u.get("active", True)]
+
+    if not active_for_edit:
+        st.info("No hay usuarios para editar.")
+    else:
+        email_to_edit = st.selectbox(
+            "Seleccionar usuario",
+            options=[u["email"] for u in active_for_edit],
+            key="edit_select",
+        )
+        target = next((u for u in active_for_edit if u["email"] == email_to_edit), None)
+
+        if target:
+            st.markdown(f"**Usuario:** `{target['email']}`")
+
+            with st.form("form_edit_perms"):
+                edit_role = st.radio(
+                    "Rol",
+                    options=["viewer", "admin"],
+                    index=0 if target.get("role") == "viewer" else 1,
+                    format_func=lambda r: "👁 Viewer" if r == "viewer" else "🔑 Admin",
+                    horizontal=True,
+                    key="edit_role_radio",
+                )
+
+                st.markdown("**Tipos de contrato permitidos**")
+                current_types = target.get("allowed_types", ["*"])
+                all_types_toggle_edit = st.checkbox(
+                    "✅ Todos los tipos",
+                    value="*" in current_types,
+                    key="edit_all_types",
+                )
+                if not all_types_toggle_edit:
+                    preselected = [t for t in current_types if t != "*"]
+                    edit_types = st.multiselect(
+                        "Seleccionar tipos específicos",
+                        options=CONTRACT_TYPES,
+                        default=[t for t in preselected if t in CONTRACT_TYPES],
+                        key="edit_types_select",
+                    )
+                else:
+                    edit_types = ["*"]
+
+                save_btn = st.form_submit_button("Guardar cambios", type="primary")
+
+            if save_btn:
+                final_types = edit_types if edit_types else ["*"]
+                ok, msg = update_user_permissions(
+                    email=email_to_edit,
+                    role=edit_role,
+                    allowed_types=final_types,
+                )
+                if ok:
+                    st.success(f"✅ Permisos de '{email_to_edit}' actualizados.")
                     st.rerun()
+                else:
+                    st.error(f"Error: {msg}")
 
-    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
+# ─── Información de ayuda ─────────────────────────────────────────────────────
+
+with st.expander("ℹ️ ¿Cómo funcionan los permisos?"):
+    st.markdown("""
+**Roles:**
+- **Admin** — acceso completo a toda la app + este panel de administración.
+- **Viewer** — acceso de solo lectura a contratos según los tipos asignados.
+
+**Tipos de contrato:**
+- Si el usuario tiene `✅ Todos`, puede ver cualquier contrato.
+- Si tiene tipos específicos (ej. `PPA`, `EPC`), solo verá contratos cuyo nombre
+  o tipo coincida con esa lista.
+- La coincidencia busca el tipo dentro del nombre del archivo y en el campo
+  `contract_type` si está disponible en los metadatos.
+
+**Almacenamiento:**
+- Esta lista se guarda en `_pactora_auth_users.json` en tu carpeta raíz de Google Drive.
+- Puedes editarla directamente en Drive si necesitas un cambio de emergencia.
+- También puedes definir admins de respaldo en `secrets.toml` → `auth_config.admin_emails`.
+    """)
