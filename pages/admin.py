@@ -7,9 +7,11 @@ import streamlit as st
 from utils.shared import apply_styles, page_header, init_session_state
 from utils.auth_manager import (
     get_all_users,
+    add_user,
+    remove_user,
+    update_user_permissions,
     is_admin,
     CONTRACT_TYPES,
-    generate_toml_snippet,
     _invalidate_cache,
 )
 
@@ -37,17 +39,17 @@ if not is_admin(_user_email):
 
 page_header("Administración de Acceso")
 st.markdown("## Panel de Administración")
-st.caption(
-    "Los usuarios se gestionan desde **Streamlit Cloud → Settings → Secrets**. "
-    "Usa esta página para ver quién tiene acceso y generar el TOML listo para pegar."
-)
+st.caption("Gestiona quién puede acceder a Pactora CLM y qué contratos puede ver cada usuario.")
 
-# ─── Tabs ─────────────────────────────────────────────────────────────────────
+tab_users, tab_add, tab_perms = st.tabs([
+    "👥 Usuarios autorizados",
+    "➕ Agregar usuario",
+    "🔧 Editar permisos",
+])
 
-tab_users, tab_add = st.tabs(["👥 Usuarios autorizados", "➕ Agregar usuario"])
 
 # ════════════════════════════════════════════════════════════════════════════════
-# TAB 1 — Lista de usuarios actuales
+# TAB 1 — Lista de usuarios
 # ════════════════════════════════════════════════════════════════════════════════
 
 with tab_users:
@@ -60,101 +62,161 @@ with tab_users:
             st.rerun()
 
     users = get_all_users(force_reload=False)
+    active_users = [u for u in users if u.get("active", True)]
 
-    if not users:
-        st.warning(
-            "No hay usuarios configurados. Agrega `admin_emails` en tus secrets de Streamlit Cloud."
-        )
+    if not active_users:
+        st.info("No hay usuarios autorizados. Usa **Agregar usuario** para comenzar.")
     else:
         import pandas as pd
 
         rows = []
-        for u in users:
+        for u in active_users:
             allowed = u.get("allowed_types", ["*"])
             rows.append({
-                "Correo": u["email"],
-                "Rol":    "🔑 Admin" if u.get("role") == "admin" else "👁 Viewer",
+                "Correo":            u["email"],
+                "Rol":               "🔑 Admin" if u.get("role") == "admin" else "👁 Viewer",
                 "Tipos de contrato": "✅ Todos" if "*" in allowed else ", ".join(allowed),
-                "Fuente": u.get("source", "secrets"),
+                "Agregado por":      u.get("added_by", "—"),
+                "Fecha":             u.get("added_at", "—")[:10],
             })
-
         st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
-    with st.expander("🗑 ¿Cómo eliminar un usuario?"):
-        st.markdown("""
-1. Ve a **Streamlit Cloud → tu app → Settings → Secrets**
-2. Encuentra el bloque `[[auth_config.users]]` del correo que quieres eliminar
-3. Borra ese bloque completo y guarda
-4. La app se recarga automáticamente
+        st.markdown("---")
+        st.markdown("#### Eliminar usuario")
 
-Para remover un **admin**, quita su correo del array `admin_emails`.
-        """)
+        removable = [u["email"] for u in active_users if u["email"] != _user_email]
+        if not removable:
+            st.info("No hay otros usuarios para eliminar.")
+        else:
+            email_to_remove = st.selectbox("Seleccionar usuario", removable, key="remove_select")
+            if st.button("🗑 Eliminar acceso", type="primary", key="btn_remove"):
+                ok, msg = remove_user(email_to_remove)
+                if ok:
+                    st.success(f"Usuario '{email_to_remove}' eliminado.")
+                    st.rerun()
+                else:
+                    st.error(f"Error: {msg}")
 
 
 # ════════════════════════════════════════════════════════════════════════════════
-# TAB 2 — Generador de TOML para agregar usuario
+# TAB 2 — Agregar usuario
 # ════════════════════════════════════════════════════════════════════════════════
 
 with tab_add:
     st.markdown("### Agregar usuario")
-    st.info(
-        "Completa el formulario → copia el TOML generado → pégalo en "
-        "**Streamlit Cloud → Settings → Secrets** → guarda.",
-        icon="📋",
-    )
+    st.caption("El usuario debe iniciar sesión con la cuenta de Google exacta que registres aquí.")
 
-    with st.form("form_generate_toml"):
-        new_email = st.text_input(
-            "Correo electrónico de Google",
-            placeholder="usuario@empresa.com",
-        )
-        new_role = st.radio(
+    with st.form("form_add_user", clear_on_submit=True):
+        new_email = st.text_input("Correo electrónico de Google", placeholder="usuario@ejemplo.com")
+        new_role  = st.radio(
             "Rol",
             options=["viewer", "admin"],
-            format_func=lambda r: "👁 Viewer — solo lectura" if r == "viewer" else "🔑 Admin — acceso total",
+            format_func=lambda r: "👁 Viewer — solo lectura" if r == "viewer" else "🔑 Admin — acceso total + administración",
             horizontal=True,
         )
 
-        all_types = st.checkbox("✅ Acceso a todos los tipos de contrato", value=True)
+        st.markdown("**Tipos de contrato permitidos**")
+        all_types = st.checkbox("✅ Todos los tipos", value=True, key="add_all_types")
         if not all_types:
-            selected_types = st.multiselect("Tipos permitidos", options=CONTRACT_TYPES)
+            selected_types = st.multiselect("Tipos específicos", options=CONTRACT_TYPES)
         else:
             selected_types = ["*"]
 
-        generate_btn = st.form_submit_button("Generar TOML", type="primary")
+        submitted = st.form_submit_button("Agregar usuario", type="primary")
 
-    if generate_btn:
+    if submitted:
         if not new_email or "@" not in new_email:
             st.error("Ingresa un correo válido.")
         else:
-            snippet = generate_toml_snippet(
-                email=new_email.strip().lower(),
+            ok, msg = add_user(
+                email=new_email,
                 role=new_role,
-                allowed_types=selected_types,
+                allowed_types=selected_types if selected_types else ["*"],
+                added_by=_user_email,
             )
-            st.success("✅ TOML generado. Cópialo y pégalo en tus Secrets:")
-            st.code(snippet, language="toml")
-            st.markdown(
-                "**Pasos:** Copia el bloque → "
-                "[Streamlit Cloud](https://share.streamlit.io) → tu app → **Settings → Secrets** → "
-                "pega al final → **Save**"
-            )
+            if ok:
+                tipos_str = "todos los tipos" if "*" in selected_types else ", ".join(selected_types)
+                st.success(f"✅ '{new_email}' agregado como **{new_role}** con acceso a: {tipos_str}.")
+                st.rerun()
+            else:
+                st.error(f"No se pudo agregar: {msg}")
 
 
-# ─── Formato de referencia ────────────────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════════════════════
+# TAB 3 — Editar permisos
+# ════════════════════════════════════════════════════════════════════════════════
 
-with st.expander("ℹ️ Formato completo de secrets.toml"):
-    st.code("""
-[auth_config]
-admin_emails = ["tu@empresa.com", "otro-admin@empresa.com"]
+with tab_perms:
+    st.markdown("### Editar permisos de usuario")
 
-[[auth_config.users]]
-email         = "colega@empresa.com"
-role          = "viewer"
-allowed_types = ["*"]
+    all_active = get_all_users(force_reload=False)
+    active_for_edit = [u for u in all_active if u.get("active", True)]
 
-[[auth_config.users]]
-email         = "externo@gmail.com"
-role          = "viewer"
-allowed_types = ["PPA", "EPC"]
-    """, language="toml")
+    if not active_for_edit:
+        st.info("No hay usuarios para editar.")
+    else:
+        email_to_edit = st.selectbox(
+            "Seleccionar usuario",
+            [u["email"] for u in active_for_edit],
+            key="edit_select",
+        )
+        target = next((u for u in active_for_edit if u["email"] == email_to_edit), None)
+
+        if target:
+            with st.form("form_edit_perms"):
+                edit_role = st.radio(
+                    "Rol",
+                    options=["viewer", "admin"],
+                    index=0 if target.get("role") == "viewer" else 1,
+                    format_func=lambda r: "👁 Viewer" if r == "viewer" else "🔑 Admin",
+                    horizontal=True,
+                    key="edit_role_radio",
+                )
+
+                current_types = target.get("allowed_types", ["*"])
+                all_types_edit = st.checkbox(
+                    "✅ Todos los tipos",
+                    value="*" in current_types,
+                    key="edit_all_types",
+                )
+                if not all_types_edit:
+                    preselected = [t for t in current_types if t != "*" and t in CONTRACT_TYPES]
+                    edit_types = st.multiselect(
+                        "Tipos específicos",
+                        options=CONTRACT_TYPES,
+                        default=preselected,
+                        key="edit_types_select",
+                    )
+                else:
+                    edit_types = ["*"]
+
+                save_btn = st.form_submit_button("Guardar cambios", type="primary")
+
+            if save_btn:
+                ok, msg = update_user_permissions(
+                    email=email_to_edit,
+                    role=edit_role,
+                    allowed_types=edit_types if edit_types else ["*"],
+                )
+                if ok:
+                    st.success(f"✅ Permisos de '{email_to_edit}' actualizados.")
+                    st.rerun()
+                else:
+                    st.error(f"Error: {msg}")
+
+
+# ─── Info ─────────────────────────────────────────────────────────────────────
+
+with st.expander("ℹ️ ¿Cómo funcionan los permisos?"):
+    st.markdown("""
+**Roles:**
+- **Admin** — acceso completo + este panel de administración.
+- **Viewer** — solo puede ver los contratos según los tipos asignados.
+
+**Tipos de contrato:**
+- `✅ Todos` — puede ver cualquier contrato.
+- Tipos específicos (ej. `PPA`, `EPC`) — solo ve contratos cuyo nombre o tipo coincida.
+
+**Almacenamiento:** Los datos se guardan en `_pactora_auth_users.json` en tu carpeta raíz de Google Drive.
+Los admins definidos en `secrets.toml → auth_config.admin_emails` siempre tienen acceso como respaldo.
+    """)
