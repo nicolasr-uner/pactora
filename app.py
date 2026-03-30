@@ -57,13 +57,12 @@ if _auth_configured:
         )
         col1, col2, col3 = st.columns([2, 1, 2])
         with col2:
-            st.button(
+            if st.button(
                 "🔐  Iniciar sesión con Google",
-                on_click=st.login,
-                args=("google",),
                 type="primary",
                 use_container_width=True,
-            )
+            ):
+                st.login("google")
         st.stop()
 
     # ── Verificar whitelist ────────────────────────────────────────────────
