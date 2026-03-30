@@ -17,6 +17,7 @@ if sys.version_info >= (3, 14):
 
 import streamlit as st
 from utils.shared import init_session_state, juanmitabot_sidebar, dark_mode_toggle
+from utils.auth import require_auth, is_admin
 
 st.set_page_config(
     page_title="Pactora CLM — Unergy",
@@ -24,12 +25,18 @@ st.set_page_config(
     layout="wide"
 )
 
+# Bloquear acceso si no está autenticado/autorizado
+require_auth()
+
 # Inicializar estado global (chatbot, session_state defaults) una sola vez por carga
 init_session_state()
 
 # Sidebar persistente con JuanMitaBot en todas las páginas
 dark_mode_toggle()
 juanmitabot_sidebar()
+
+# Páginas de sistema dinámicas
+admin_pages = [st.Page("pages/admin.py", title="Administración", icon="🔐")] if is_admin() else []
 
 pg = st.navigation({
     "Principal": [
@@ -48,6 +55,7 @@ pg = st.navigation({
     ],
     "Sistema": [
         st.Page("pages/ajustes.py",     title="Ajustes",        icon="⚙"),
+        *admin_pages,
     ],
 })
 pg.run()

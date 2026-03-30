@@ -1,5 +1,6 @@
 import streamlit as st
 from utils.shared import apply_styles, page_header, init_session_state, render_document_preview
+from utils.auth import get_current_user, filter_sources_for_user
 
 apply_styles()
 init_session_state()
@@ -7,8 +8,10 @@ page_header()
 
 st.markdown("## Biblioteca de Documentos")
 
+user = get_current_user()
 stats = st.session_state.chatbot.get_stats()
 sources = stats.get("sources", [])
+sources = filter_sources_for_user(sources, user)
 selected_src = st.session_state.get("biblioteca_selected")
 
 # ── MODO SPLIT VIEW (documento abierto) ───────────────────────────────────────

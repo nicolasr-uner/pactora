@@ -14,6 +14,16 @@ if "jmc_pending_query" not in st.session_state:
 chatbot = st.session_state.chatbot
 stats = chatbot.get_stats()
 
+from utils.auth import get_current_user, filter_sources_for_user
+user = get_current_user()
+filtered_sources = filter_sources_for_user(stats.get("sources", []), user)
+stats["sources"] = filtered_sources
+stats["total_docs"] = len(filtered_sources)
+
+user_filter = None
+if user and "all" not in user.get("allowed_contract_types", ["all"]):
+    user_filter = {"source": {"$in": filtered_sources}}
+
 # ─── Sin contratos indexados ───────────────────────────────────────────────────
 if stats["total_docs"] == 0:
     st.markdown(
@@ -164,9 +174,20 @@ with col_chat:
         # Llamar al chatbot
         try:
             with st.spinner("Pensando…"):
+                sidebar_filter = st.session_state.get("sidebar_chat_filter")
+                
+                # Combinar el filtro de la barra lateral (si existe) con los permisos del usuario
+                final_filter = None
+                if sidebar_filter and user_filter:
+                    final_filter = {"$and": [sidebar_filter, user_filter]}
+                elif sidebar_filter:
+                    final_filter = sidebar_filter
+                elif user_filter:
+                    final_filter = user_filter
+                    
                 ans = chatbot.ask_question(
                     user_input,
-                    filter_metadata=st.session_state.get("sidebar_chat_filter"),
+                    filter_metadata=final_filter,
                     chat_history=history_for_llm,
                 )
         except Exception as exc:

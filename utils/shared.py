@@ -188,14 +188,27 @@ def juanmitabot_sidebar():
     """Chat lateral de JuanMitaBot en la barra lateral — comparte historial con la página principal."""
     with st.sidebar:
         try:
-            if st.user.is_logged_in:
+            from utils.auth import get_current_user
+            u = get_current_user()
+            if getattr(st, "user", None) and getattr(st.user, "is_logged_in", False) and u:
+                role_badge = "👑 Admin" if u.get("role") == "admin" else "👤 Visor"
                 st.markdown(
                     f'<div style="font-size:12px;color:#F6FF72;margin-bottom:4px;">'
-                    f'👤 {st.user.name}<br>'
-                    f'<span style="opacity:0.7">{st.user.email}</span></div>',
+                    f'{role_badge} — {u.get("name")}<br>'
+                    f'<span style="opacity:0.7">{u.get("email")}</span></div>',
                     unsafe_allow_html=True,
                 )
-                st.button("Cerrar sesion", on_click=st.logout, key="sidebar_logout")
+                if hasattr(st, "logout"):
+                    st.button("Cerrar sesion", on_click=st.logout, key="sidebar_logout")
+            elif getattr(st, "user", None) and getattr(st.user, "is_logged_in", False):
+                st.markdown(
+                    f'<div style="font-size:12px;color:#F6FF72;margin-bottom:4px;">'
+                    f'👤 {getattr(st.user, "name", "Usuario")}<br>'
+                    f'<span style="opacity:0.7">{getattr(st.user, "email", "")}</span></div>',
+                    unsafe_allow_html=True,
+                )
+                if hasattr(st, "logout"):
+                    st.button("Cerrar sesion", on_click=st.logout, key="sidebar_logout")
         except Exception:
             pass
         st.markdown("---")
