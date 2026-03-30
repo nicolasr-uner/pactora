@@ -184,14 +184,32 @@ def _drive_status_widget():
 
 # ─── Sidebar de JuanMitaBot ───────────────────────────────────────────────────
 
+def filter_contracts_for_user(contracts: list[dict]) -> list[dict]:
+    """
+    Filtra una lista de contratos (dicts con metadata) según los permisos
+    del usuario actual en session_state.
+    Los admins ven todo. Los viewers solo ven sus tipos permitidos.
+    """
+    try:
+        from utils.auth_manager import can_view_contract
+        email = st.session_state.get("current_user_email", "")
+        if not email:
+            return contracts
+        return [c for c in contracts if can_view_contract(email, c)]
+    except Exception:
+        return contracts
+
+
 def juanmitabot_sidebar():
     """Chat lateral de JuanMitaBot en la barra lateral — comparte historial con la página principal."""
     with st.sidebar:
         try:
             if st.user.is_logged_in:
+                _is_admin = st.session_state.get("current_user_is_admin", False)
+                _role_badge = " 🔑" if _is_admin else ""
                 st.markdown(
                     f'<div style="font-size:12px;color:#F6FF72;margin-bottom:4px;">'
-                    f'👤 {st.user.name}<br>'
+                    f'👤 {st.user.name}{_role_badge}<br>'
                     f'<span style="opacity:0.7">{st.user.email}</span></div>',
                     unsafe_allow_html=True,
                 )
