@@ -105,6 +105,37 @@ def get_drive_service_with_apikey(api_key: str):
     return build('drive', 'v3', developerKey=api_key, cache_discovery=False)
 
 
+def get_sheets_service_sa():
+    """
+    Retorna Sheets v4 service usando Service Account desde st.secrets.
+    Scope: spreadsheets (lectura y escritura en Sheets).
+    Retorna None si no hay SA configurada.
+    """
+    try:
+        import streamlit as st
+        from google.oauth2 import service_account
+
+        sa = st.secrets.get("GOOGLE_SERVICE_ACCOUNT", {})
+        if not sa:
+            _log.warning("[auth] GOOGLE_SERVICE_ACCOUNT no encontrado — Sheets SA no disponible")
+            return None
+
+        sa_dict = dict(sa)
+        if "private_key" in sa_dict:
+            pk = str(sa_dict["private_key"])
+            pk = pk.replace("\\n", "\n").replace("\r", "")
+            sa_dict["private_key"] = pk
+
+        creds = service_account.Credentials.from_service_account_info(
+            sa_dict,
+            scopes=["https://www.googleapis.com/auth/spreadsheets"],
+        )
+        return build("sheets", "v4", credentials=creds, cache_discovery=False)
+    except Exception as e:
+        _log.error("[auth] get_sheets_service_sa fallo: %s", e)
+        return None
+
+
 def get_calendar_service():
     """Retorna Calendar service. Retorna None si no hay credenciales."""
     try:

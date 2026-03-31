@@ -537,11 +537,263 @@ def analyze_risk(text: str, contract_type: str = "General") -> dict:
     return _MOCK_RISKS[seed % len(_MOCK_RISKS)]
 
 
+# ---------------------------------------------------------------------------
+# Contract type detection (standalone — usado por indexing.py sin circular import)
+# ---------------------------------------------------------------------------
+
+_TIPO_KWS = [
+    ("PPA", "PPA"), ("EPC", "EPC"), ("O&M", "O&M"), ("OAM", "O&M"),
+    ("SHA", "SHA"), ("NDA", "NDA"), ("ARRIENDO", "Arriendo"),
+    ("FIDUCIA", "Fiducia"), ("FRONTERA", "Rep. Frontera"),
+]
+
+
+def detect_contract_type(filename: str, text: str = "") -> str:
+    """Detecta el tipo de contrato por nombre de archivo y/o primeras líneas de texto."""
+    for src in (filename.upper(), text[:500].upper() if text else ""):
+        for kw, tipo in _TIPO_KWS:
+            if kw in src:
+                return tipo
+    return "General"
+
+
+# ---------------------------------------------------------------------------
+# Contract Profiles Sheet (base de datos permanente de contratos para JuanMitaBot)
+# ---------------------------------------------------------------------------
+
+_PROFILES_HEADERS = [
+    "drive_id", "filename", "contract_type", "parties",
+    "start_date", "end_date", "value_clp", "obligations_summary",
+    "risk_level", "risk_summary", "compliance_score", "indexed_at",
+]
+
+
+def extract_contract_profile(
+    text: str,
+    filename: str,
+    contract_type: str = "General",
+    drive_id: str = "",
+) -> dict:
+    """
+    Extrae un perfil completo del contrato en una sola llamada LLM.
+    Incluye partes, vigencia, valor, obligaciones, nivel de riesgo y score.
+    En modo offline retorna un perfil vacío (sin datos LLM).
+    """
+    from datetime import datetime, timezone as _tz
+
+    profile: Dict[str, str] = {
+        "drive_id": drive_id,
+        "filename": filename,
+        "contract_type": contract_type,
+        "parties": "",
+        "start_date": "",
+        "end_date": "",
+        "value_clp": "",
+        "obligations_summary": "",
+        "risk_level": "VERDE",
+        "risk_summary": "",
+        "compliance_score": "0",
+        "indexed_at": datetime.now(_tz.utc).isoformat(),
+    }
+
+    if not LLM_AVAILABLE:
+        return profile
+
+    try:
+        prompt = (
+            f"Analiza este contrato de tipo {contract_type} y devuelve JSON con estas claves EXACTAS:\n"
+            '{"parties": "partes separadas por coma", '
+            '"start_date": "YYYY-MM-DD o vacío", '
+            '"end_date": "YYYY-MM-DD o vacío", '
+            '"value_clp": "valor total como string o vacío", '
+            '"obligations_summary": "resumen 2-3 líneas de obligaciones principales", '
+            '"risk_level": "ROJO|AMARILLO|VERDE", '
+            '"risk_summary": "resumen 1-2 líneas del riesgo principal", '
+            '"compliance_score": "número 0-100"}\n'
+            "Solo JSON, sin delimitadores markdown.\n\n"
+            f"Contrato ({filename}):\n{text[:6000]}"
+        )
+        raw = _call_gemini(prompt)
+        extracted = json.loads(_clean_json_response(raw))
+        updatable = set(_PROFILES_HEADERS) - {"drive_id", "filename", "contract_type", "indexed_at"}
+        for k, v in extracted.items():
+            if k in updatable:
+                profile[k] = str(v)
+    except Exception as e:
+        _log.warning("[llm_service] extract_contract_profile falló para '%s': %s", filename, e)
+
+    return profile
+
+
+def write_contract_profile(profile: dict) -> bool:
+    """
+    Escribe o actualiza una fila en el Contract Profiles Sheet.
+    Si el filename ya existe en el sheet, actualiza esa fila; si no, la agrega.
+    """
+    try:
+        import streamlit as st
+        from utils.auth_helper import get_sheets_service_sa
+
+        sheet_id = st.secrets.get("CONTRACT_PROFILES_SHEET_ID", "")
+        if not sheet_id:
+            return False
+
+        service = get_sheets_service_sa()
+        if not service:
+            return False
+
+        row = [profile.get(h, "") for h in _PROFILES_HEADERS]
+        filename = profile.get("filename", "")
+
+        result = (
+            service.spreadsheets()
+            .values()
+            .get(spreadsheetId=sheet_id, range="Sheet1!A:L")
+            .execute()
+        )
+        rows = result.get("values", [])
+
+        if not rows:
+            service.spreadsheets().values().update(
+                spreadsheetId=sheet_id,
+                range="Sheet1!A1",
+                valueInputOption="RAW",
+                body={"values": [_PROFILES_HEADERS, row]},
+            ).execute()
+        else:
+            # Find existing row by filename (column B = index 1)
+            existing_idx = next(
+                (i + 1 for i, r in enumerate(rows) if len(r) > 1 and r[1] == filename),
+                None,
+            )
+            if existing_idx:
+                service.spreadsheets().values().update(
+                    spreadsheetId=sheet_id,
+                    range=f"Sheet1!A{existing_idx}",
+                    valueInputOption="RAW",
+                    body={"values": [row]},
+                ).execute()
+            else:
+                service.spreadsheets().values().append(
+                    spreadsheetId=sheet_id,
+                    range="Sheet1!A:L",
+                    valueInputOption="RAW",
+                    insertDataOption="INSERT_ROWS",
+                    body={"values": [row]},
+                ).execute()
+
+        _log.info("[llm_service] Perfil guardado: %s", filename)
+        return True
+    except Exception as e:
+        _log.warning("[llm_service] Error al escribir perfil: %s", e)
+        return False
+
+
+def read_contract_profiles() -> List[Dict[str, str]]:
+    """
+    Lee todos los perfiles de contratos desde el Contract Profiles Sheet.
+    Retorna lista de dicts, o [] si el sheet no está configurado o falla.
+    """
+    try:
+        import streamlit as st
+        from utils.auth_helper import get_sheets_service_sa
+
+        sheet_id = st.secrets.get("CONTRACT_PROFILES_SHEET_ID", "")
+        if not sheet_id:
+            return []
+
+        service = get_sheets_service_sa()
+        if not service:
+            return []
+
+        result = (
+            service.spreadsheets()
+            .values()
+            .get(spreadsheetId=sheet_id, range="Sheet1!A:L")
+            .execute()
+        )
+        rows = result.get("values", [])
+        if len(rows) < 2:
+            return []
+
+        headers = rows[0]
+        profiles = []
+        for row in rows[1:]:
+            if not row:
+                continue
+            p = {headers[i]: (row[i] if i < len(row) else "") for i in range(len(headers))}
+            if p.get("filename"):
+                profiles.append(p)
+        return profiles
+    except Exception as e:
+        _log.warning("[llm_service] Error al leer perfiles: %s", e)
+        return []
+
+
+def _format_profiles_context(profiles: List[Dict[str, str]]) -> str:
+    """Formatea los perfiles como bloque de contexto estructurado para JuanMitaBot."""
+    _RISK_EMOJI = {"ROJO": "🔴", "AMARILLO": "🟡", "VERDE": "🟢"}
+    lines = [
+        f"\nPORTAFOLIO PACTORA — {len(profiles)} contratos indexados",
+        "━" * 52,
+    ]
+    risk_counts: Dict[str, int] = {"ROJO": 0, "AMARILLO": 0, "VERDE": 0}
+    type_counts: Dict[str, int] = {}
+
+    for i, p in enumerate(profiles, 1):
+        filename = p.get("filename", "sin nombre")
+        ctype = p.get("contract_type", "General")
+        parties = p.get("parties", "")
+        start, end = p.get("start_date", ""), p.get("end_date", "")
+        value = p.get("value_clp", "")
+        risk = p.get("risk_level", "VERDE").upper()
+        score = p.get("compliance_score", "")
+        obligations = p.get("obligations_summary", "")
+
+        emoji = _RISK_EMOJI.get(risk, "⚪")
+        vigencia = f"{start}→{end}" if start and end else (start or end or "")
+
+        lines.append(f"[{i}] {filename} | {ctype}")
+        if parties:
+            lines.append(f"    Partes: {parties[:120]}")
+        if vigencia:
+            lines.append(f"    Vigencia: {vigencia}")
+        if value:
+            lines.append(f"    Valor: {value}")
+        lines.append(f"    Riesgo: {emoji} {risk} (score: {score}/100)")
+        if obligations:
+            lines.append(f"    Obligaciones: {obligations[:160]}")
+
+        risk_counts[risk] = risk_counts.get(risk, 0) + 1
+        type_counts[ctype] = type_counts.get(ctype, 0) + 1
+
+        # Cap at 50 contracts to avoid token overflow — semantic search handles the rest
+        if i >= 50 and len(profiles) > 50:
+            lines.append(f"… y {len(profiles) - 50} contratos más (usa búsqueda semántica para detalles)")
+            break
+
+    type_summary = ", ".join(f"{cnt} {t}" for t, cnt in sorted(type_counts.items()))
+    risk_parts = [f"{_RISK_EMOJI.get(k, '')} {k}: {v}" for k, v in risk_counts.items() if v > 0]
+    lines += ["━" * 52, f"TIPOS: {type_summary}", f"RIESGOS: {' | '.join(risk_parts)}"]
+    return "\n".join(lines)
+
+
 def build_portfolio_context() -> str:
     """
-    Genera un bloque de contexto dinámico con el estado actual del portafolio de contratos.
-    Se inyecta en el system prompt de JuanMitaBot para que conozca el portafolio.
+    Genera un bloque de contexto con el portafolio completo de contratos.
+    Prioriza los perfiles del Contract Profiles Sheet (datos estructurados permanentes,
+    sin necesidad de LLM en tiempo de consulta).
+    Fallback a estadísticas de ChromaDB si el Sheet no está configurado.
     """
+    # 1. Perfiles del Sheet (permanentes, cargados en < 1s)
+    try:
+        profiles = read_contract_profiles()
+        if profiles:
+            return _format_profiles_context(profiles)
+    except Exception:
+        pass
+
+    # 2. Fallback: estadísticas de ChromaDB
     try:
         import streamlit as st
         cb = st.session_state.get("chatbot")
@@ -553,22 +805,9 @@ def build_portfolio_context() -> str:
         if total == 0:
             return "\nESTADO DEL PORTAFOLIO: Sin contratos indexados actualmente."
 
-        # Clasificar contratos por tipo (detección simple por nombre)
-        _TIPO_KWS = [
-            ("PPA", "PPA"), ("EPC", "EPC"), ("O&M", "O&M"), ("OAM", "O&M"),
-            ("SHA", "SHA"), ("NDA", "NDA"), ("ARRIENDO", "Arriendo"),
-            ("FIDUCIA", "Fiducia"), ("FRONTERA", "Rep. Frontera"),
-        ]
-        def _detect_type(name: str) -> str:
-            u = name.upper()
-            for kw, tipo in _TIPO_KWS:
-                if kw in u:
-                    return tipo
-            return "General"
-
         type_counts: Dict[str, int] = {}
         for src in sources:
-            t = _detect_type(src)
+            t = detect_contract_type(src)
             type_counts[t] = type_counts.get(t, 0) + 1
 
         type_summary = ", ".join(f"{cnt} {tipo}" for tipo, cnt in sorted(type_counts.items()))

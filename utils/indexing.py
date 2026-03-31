@@ -173,6 +173,42 @@ def _backup_chromadb_to_drive(drive_root_id: str) -> bool:
 
 # ─── Background indexation ────────────────────────────────────────────────────
 
+def _extract_and_save_profiles(docs: list, index_meta: dict) -> None:
+    """
+    Extrae un perfil estructurado (via LLM) para cada contrato recién indexado
+    y lo persiste en el Contract Profiles Sheet.
+
+    Solo actúa si LLM_AVAILABLE es True y CONTRACT_PROFILES_SHEET_ID está configurado.
+    Guarda 'profile_extracted: True' en index_meta para evitar re-extracción.
+    Los errores individuales se registran como warning sin abortar el proceso.
+    """
+    try:
+        from core.llm_service import (
+            LLM_AVAILABLE,
+            detect_contract_type,
+            extract_contract_profile,
+            write_contract_profile,
+        )
+        if not LLM_AVAILABLE:
+            return
+
+        for text, filename, meta in docs:
+            if index_meta.get(filename, {}).get("profile_extracted"):
+                continue
+            try:
+                contract_type = detect_contract_type(filename, text)
+                drive_id = meta.get("drive_id", "") if isinstance(meta, dict) else ""
+                profile = extract_contract_profile(text, filename, contract_type, drive_id)
+                write_contract_profile(profile)
+                if filename in index_meta:
+                    index_meta[filename]["profile_extracted"] = True
+                log.info("[profile] Perfil extraído: %s (%s)", filename, contract_type)
+            except Exception as e:
+                log.warning("[profile] Error extrayendo perfil de '%s': %s", filename, e)
+    except Exception as e:
+        log.warning("[profile] _extract_and_save_profiles falló: %s", e)
+
+
 def _get_chatbot_cached():
     """Obtiene la instancia compartida del chatbot desde st.cache_resource."""
     # Import inline para evitar circular imports con shared.py
@@ -322,6 +358,7 @@ def _bg_startup_index(api_key, drive_root_id, drive_api_key):
                     total_indexed += len(docs)
                     prog["indexed"] = total_indexed
                     log.info("Lote indexado. Acumulado: %d contrato(s).", total_indexed)
+                    _extract_and_save_profiles(docs, index_meta)
                     _save_index_metadata(index_meta)
                     if total_indexed % BACKUP_EVERY == 0:
                         log.info("[backup] Backup parcial en checkpoint: %d docs", total_indexed)

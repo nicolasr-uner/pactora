@@ -82,6 +82,13 @@ class RAGChatbot:
                 if metadata_global:
                     clean_meta.update(metadata_global)
                 clean_meta["source"] = filename
+                # Summary chunk: first 800 chars give a high-weight overview for comparative queries
+                summary_text = text_content[:800].strip()
+                if summary_text:
+                    summary_meta = dict(clean_meta)
+                    summary_meta["chunk_type"] = "summary"
+                    from langchain_core.documents import Document as _Doc
+                    all_splits.append(_Doc(page_content=summary_text, metadata=summary_meta))
                 splits = text_splitter.create_documents([text_content], metadatas=[clean_meta])
                 all_splits.extend(splits)
                 if filename not in self._indexed_sources:
@@ -110,7 +117,7 @@ class RAGChatbot:
         if self.vectorstore is None:
             return context_text, sources
         try:
-            search_kwargs: Dict[str, Any] = {"k": 6}
+            search_kwargs: Dict[str, Any] = {"k": 10}
             if filter_metadata:
                 search_kwargs["filter"] = filter_metadata
             docs = self.vectorstore.similarity_search(question, **search_kwargs)

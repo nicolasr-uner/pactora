@@ -1,25 +1,24 @@
 """
 auth_manager.py — Gestión de acceso y permisos de usuario en Pactora CLM.
 
-Almacenamiento persistente: _pactora_auth_users.json en Google Drive (Shared Drive).
-Todas las llamadas a Drive usan supportsAllDrives=True para compatibilidad con Shared Drives.
-Fallback: st.secrets["auth_config"]["admin_emails"] si Drive no está disponible.
+Almacenamiento persistente: Google Sheets (AUTH_USERS_SHEET_ID en st.secrets).
+El Service Account necesita acceso Editor al Sheet.
+Fallback: st.secrets["auth_config"]["admin_emails"] si Sheets no está disponible.
 """
 
 from __future__ import annotations
 
-import io
 import json
 import logging
 import time
 from datetime import datetime, timezone
-from typing import Any
 
 import streamlit as st
 
 _log = logging.getLogger("pactora")
 
-AUTH_USERS_FILENAME = "_pactora_auth_users.json"
+_SHEET_RANGE        = "Sheet1!A:G"
+_HEADERS            = ["email", "role", "allowed_types", "allowed_tags", "added_at", "added_by", "active"]
 _CACHE_TTL_SECONDS  = 120
 _USERS_CACHE_KEY    = "_auth_users_cache"
 _USERS_CACHE_TS_KEY = "_auth_users_cache_ts"
@@ -52,109 +51,136 @@ def _empty_user(email: str, role: str = "viewer", added_by: str = "system") -> d
     }
 
 
-# ─── Drive helpers ─────────────────────────────────────────────────────────────
+# ─── Sheets helpers ────────────────────────────────────────────────────────────
 
-def _get_drive_root_id() -> str:
+def _get_sheet_id() -> str:
     try:
-        return st.secrets.get("DRIVE_ROOT_FOLDER_ID", "")
+        return st.secrets.get("AUTH_USERS_SHEET_ID", "")
     except Exception:
         return ""
 
 
-def _load_users_from_drive() -> dict | None:
-    """Lee _pactora_auth_users.json desde Drive (Shared Drive compatible)."""
+def _load_users_from_sheets() -> dict | None:
+    """
+    Lee filas desde el Google Sheet de usuarios.
+    Fila 1 = headers: email|role|allowed_types|allowed_tags|added_at|added_by|active
+    Retorna {"users": [...], "updated_at": "..."} o None si no está configurado.
+    """
     try:
-        from utils.auth_helper import get_drive_service_sa
-        from googleapiclient.http import MediaIoBaseDownload
+        from utils.auth_helper import get_sheets_service_sa
 
-        service = get_drive_service_sa()
+        sheet_id = _get_sheet_id()
+        if not sheet_id:
+            return None
+
+        service = get_sheets_service_sa()
         if not service:
             return None
 
-        root_id = _get_drive_root_id()
-        query_parts = [f"name='{AUTH_USERS_FILENAME}'", "trashed=false"]
-        if root_id:
-            query_parts.append(f"'{root_id}' in parents")
-
-        results = service.files().list(
-            q=" and ".join(query_parts),
-            fields="files(id,name)",
-            pageSize=1,
-            includeItemsFromAllDrives=True,
-            supportsAllDrives=True,
-        ).execute()
-
-        files = results.get("files", [])
-        if not files:
-            return None
-
-        file_id = files[0]["id"]
-        buf = io.BytesIO()
-        downloader = MediaIoBaseDownload(
-            buf,
-            service.files().get_media(fileId=file_id, supportsAllDrives=True),
+        result = (
+            service.spreadsheets()
+            .values()
+            .get(spreadsheetId=sheet_id, range=_SHEET_RANGE)
+            .execute()
         )
-        done = False
-        while not done:
-            _, done = downloader.next_chunk()
-        buf.seek(0)
-        return json.loads(buf.read().decode("utf-8"))
+        rows = result.get("values", [])
+        if not rows:
+            # Sheet vacío — inicializar con headers
+            _write_headers_if_empty(service, sheet_id)
+            return {"users": [], "updated_at": datetime.now(timezone.utc).isoformat()}
+
+        # Ignorar fila de headers
+        users: list[dict] = []
+        for row in rows[1:]:
+            if not row:
+                continue
+            def _cell(i: int, default: str = "") -> str:
+                return row[i].strip() if i < len(row) else default
+
+            try:
+                allowed_types = json.loads(_cell(2)) if _cell(2) else ["*"]
+            except (json.JSONDecodeError, ValueError):
+                allowed_types = ["*"]
+            try:
+                allowed_tags = json.loads(_cell(3)) if _cell(3) else []
+            except (json.JSONDecodeError, ValueError):
+                allowed_tags = []
+
+            email = _cell(0).lower()
+            if not email:
+                continue
+            users.append({
+                "email":         email,
+                "role":          _cell(1) or "viewer",
+                "allowed_types": allowed_types,
+                "allowed_tags":  allowed_tags,
+                "added_at":      _cell(4),
+                "added_by":      _cell(5),
+                "active":        _cell(6, "True").lower() == "true",
+            })
+
+        _log.info("[auth_manager] %d usuarios cargados desde Sheets", len(users))
+        return {"users": users, "updated_at": datetime.now(timezone.utc).isoformat()}
     except Exception as e:
-        _log.warning("[auth_manager] No se pudo leer desde Drive: %s", e)
+        _log.warning("[auth_manager] No se pudo leer desde Sheets: %s", e)
         return None
 
 
-def _save_users_to_drive(data: dict) -> bool:
-    """Guarda (crea o actualiza) _pactora_auth_users.json en Drive."""
+def _write_headers_if_empty(service, sheet_id: str) -> None:
     try:
-        from utils.auth_helper import get_drive_service_sa
-        from googleapiclient.http import MediaIoBaseUpload
+        service.spreadsheets().values().update(
+            spreadsheetId=sheet_id,
+            range="Sheet1!A1",
+            valueInputOption="RAW",
+            body={"values": [_HEADERS]},
+        ).execute()
+    except Exception as e:
+        _log.warning("[auth_manager] No se pudo escribir headers: %s", e)
 
-        service = get_drive_service_sa()
-        if not service:
-            _log.warning("[auth_manager] Service Account no disponible")
+
+def _save_users_to_sheets(data: dict) -> bool:
+    """
+    Sobreescribe el Sheet completo con los usuarios actuales.
+    Fila 1 = headers, filas 2+ = datos.
+    """
+    try:
+        from utils.auth_helper import get_sheets_service_sa
+
+        sheet_id = _get_sheet_id()
+        if not sheet_id:
+            _log.warning("[auth_manager] AUTH_USERS_SHEET_ID no configurado")
             return False
 
-        root_id = _get_drive_root_id()
-        data["updated_at"] = datetime.now(timezone.utc).isoformat()
-        payload = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
-        media   = MediaIoBaseUpload(io.BytesIO(payload), mimetype="application/json", resumable=False)
+        service = get_sheets_service_sa()
+        if not service:
+            _log.warning("[auth_manager] Sheets SA no disponible")
+            return False
 
-        # Buscar si ya existe
-        query_parts = [f"name='{AUTH_USERS_FILENAME}'", "trashed=false"]
-        if root_id:
-            query_parts.append(f"'{root_id}' in parents")
+        rows = [_HEADERS]
+        for u in data.get("users", []):
+            rows.append([
+                u.get("email", ""),
+                u.get("role", "viewer"),
+                json.dumps(u.get("allowed_types", ["*"]), ensure_ascii=False),
+                json.dumps(u.get("allowed_tags", []), ensure_ascii=False),
+                u.get("added_at", ""),
+                u.get("added_by", ""),
+                str(u.get("active", True)),
+            ])
 
-        results  = service.files().list(
-            q=" and ".join(query_parts),
-            fields="files(id)",
-            pageSize=1,
-            includeItemsFromAllDrives=True,
-            supportsAllDrives=True,
+        sheets = service.spreadsheets().values()
+        sheets.clear(spreadsheetId=sheet_id, range=_SHEET_RANGE).execute()
+        sheets.update(
+            spreadsheetId=sheet_id,
+            range="Sheet1!A1",
+            valueInputOption="RAW",
+            body={"values": rows},
         ).execute()
-        existing = results.get("files", [])
 
-        if existing:
-            service.files().update(
-                fileId=existing[0]["id"],
-                media_body=media,
-                supportsAllDrives=True,
-            ).execute()
-        else:
-            meta: dict[str, Any] = {"name": AUTH_USERS_FILENAME, "mimeType": "application/json"}
-            if root_id:
-                meta["parents"] = [root_id]
-            service.files().create(
-                body=meta,
-                media_body=media,
-                fields="id",
-                supportsAllDrives=True,
-            ).execute()
-
-        _log.info("[auth_manager] Usuarios guardados en Drive (%d)", len(data.get("users", [])))
+        _log.info("[auth_manager] %d usuarios guardados en Sheets", len(rows) - 1)
         return True
     except Exception as e:
-        _log.error("[auth_manager] Error al guardar en Drive: %s", e)
+        _log.error("[auth_manager] Error al guardar en Sheets: %s", e)
         return False
 
 
@@ -201,10 +227,10 @@ def get_all_users(force_reload: bool = False) -> list[dict]:
             if cached is not None:
                 return cached
 
-    drive_data = _load_users_from_drive()
+    drive_data = _load_users_from_sheets()
     if drive_data is None:
         drive_data = _bootstrap_initial_data()
-        _save_users_to_drive(drive_data)
+        _save_users_to_sheets(drive_data)
 
     users: list[dict] = drive_data.get("users", [])
 
@@ -289,10 +315,10 @@ def add_user(
         new_user["allowed_tags"] = allowed_tags
 
     users.append(new_user)
-    if _save_users_to_drive({"users": users}):
+    if _save_users_to_sheets({"users": users}):
         _invalidate_cache()
         return True, ""
-    return False, "No se pudo guardar en Drive. Verifica la conexión."
+    return False, "No se pudo guardar en Sheets. Verifica que AUTH_USERS_SHEET_ID esté configurado y el SA tenga acceso Editor."
 
 
 def remove_user(email: str) -> tuple[bool, str]:
@@ -311,10 +337,10 @@ def remove_user(email: str) -> tuple[bool, str]:
         return False, "No puedes eliminar el único administrador."
 
     target["active"] = False
-    if _save_users_to_drive({"users": users}):
+    if _save_users_to_sheets({"users": users}):
         _invalidate_cache()
         return True, ""
-    return False, "No se pudo guardar en Drive."
+    return False, "No se pudo guardar en Sheets."
 
 
 def update_user_permissions(
@@ -336,7 +362,7 @@ def update_user_permissions(
     if allowed_tags is not None:
         target["allowed_tags"] = allowed_tags
 
-    if _save_users_to_drive({"users": users}):
+    if _save_users_to_sheets({"users": users}):
         _invalidate_cache()
         return True, ""
-    return False, "No se pudo guardar en Drive."
+    return False, "No se pudo guardar en Sheets."
