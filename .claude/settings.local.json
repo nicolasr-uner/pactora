@@ -7,7 +7,13 @@
       "Bash(taskkill //F //IM python.exe //FI \"WINDOWTITLE eq streamlit*\")",
       "Bash(start \"\" \"http://localhost:8501\")",
       "Bash(grep -rn \"gemini-1.5-flash\\\\|gemini-2.0-flash\" /c/Users/Lenovo/OneDrive/Desktop/clm_project/core/*.py)",
-      "Bash(venv/Scripts/python -c \"import streamlit; print\\(streamlit.__version__\\)\")"
+      "Bash(venv/Scripts/python -c \"import streamlit; print\\(streamlit.__version__\\)\")",
+      "Bash(gh pr:*)",
+      "Bash(where gh:*)",
+      "Bash(winget list:*)",
+      "Bash(winget install:*)",
+      "Bash(\"/c/Program Files/GitHub CLI/gh.exe\" auth status)",
+      "Bash(\"/c/Program Files/GitHub:*)"
     ]
   }
 }
