@@ -165,23 +165,24 @@ class RAGChatbot:
         if sources and sources[0].startswith("ERROR:"):
             return f"Error al consultar la base de datos: {sources[0][6:]}"
 
-        # --- Modo LLM (Gemini activo) ---
+        # --- Modo Agente (Gemini Function Calling) ---
         try:
-            from core.llm_service import LLM_AVAILABLE, generate_response
+            from core.llm_service import LLM_AVAILABLE, run_agent_turn
             if LLM_AVAILABLE:
-                llm_answer = generate_response(
+                agent_answer = run_agent_turn(
                     question=question,
-                    context=context_text,
                     history=chat_history,
+                    filter_metadata=filter_metadata,
                 )
-                if llm_answer:
-                    if sources:
-                        llm_answer += f"\n\n---\n*Fuentes consultadas: {', '.join(sources)}*"
-                    return llm_answer
+                if agent_answer:
+                    return agent_answer
+        except ValueError as ve:
+            # Rate limit — devolver mensaje amigable en lugar de silenciar
+            return f"⏳ {ve}"
         except Exception as e:
-            _log.warning("[rag] generate_response falló, usando modo búsqueda: %s", e)
+            _log.warning("[rag] run_agent_turn falló, usando modo búsqueda: %s", e)
 
-        # --- Modo búsqueda semántica (fallback) ---
+        # --- Modo búsqueda semántica (fallback cuando LLM no disponible o falla) ---
         response = "**Fragmentos relevantes encontrados:**\n\n" + context_text
         if sources:
             response += f"\n\n---\n*Fuentes: {', '.join(sources)}*"

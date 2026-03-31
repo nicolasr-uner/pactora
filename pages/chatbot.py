@@ -53,9 +53,10 @@ if stats["total_docs"] == 0:
     st.stop()
 
 # ─── Header ────────────────────────────────────────────────────────────────────
-modo_label = "🤖 JuanMitaBot — Modo IA" if LLM_AVAILABLE else "🤖 JuanMitaBot — Búsqueda semántica"
+modo_label = "🤖 JuanMitaBot — Modo Agente" if LLM_AVAILABLE else "🤖 JuanMitaBot — Búsqueda semántica"
 modo_desc = (
-    "Conversación natural sobre tus contratos, potenciada por Gemini"
+    "Agente autónomo con acceso a herramientas: búsqueda semántica, perfiles, "
+    "comparación, vencimientos y resumen de portafolio"
     if LLM_AVAILABLE else
     "Busca fragmentos relevantes en el contenido de tus contratos indexados"
 )
@@ -103,16 +104,20 @@ with col_panel:
             icon = {"pdf": "📕", "docx": "📝", "pptx": "📊", "xlsx": "📊"}.get(ext, "📄")
             st.markdown(f"{icon} {src}", unsafe_allow_html=False)
 
-    with st.expander("💡 Cómo preguntar", expanded=False):
+    with st.expander("💡 Qué puede hacer el agente", expanded=False):
         st.markdown(
-            "Escribe preguntas en lenguaje natural:\n\n"
-            "- *¿Cuáles son las partes del contrato?*\n"
-            "- *¿Qué dice sobre penalidades?*\n"
-            "- *¿Cuándo vence el plazo?*\n"
-            "- *Muéstrame las cláusulas de fuerza mayor*\n\n"
-            + ("✨ **Gemini activo** — historial de conversación incluido"
-               if LLM_AVAILABLE else
-               "⚫ Modo semántico — activa Gemini en Ajustes para IA")
+            ("🤖 **Modo Agente activo** — JuanMitaBot usa herramientas autónomamente:\n\n"
+             "- *¿Qué contratos PPA tenemos?* → lista y filtra\n"
+             "- *¿Cuál vence primero?* → revisa vencimientos\n"
+             "- *Compara el contrato A con el B* → tabla comparativa\n"
+             "- *¿Cuál es el riesgo del portafolio?* → resumen global\n"
+             "- *¿Qué dice el EPC sobre penalidades?* → búsqueda semántica\n\n"
+             "El agente combina herramientas en una sola respuesta."
+             if LLM_AVAILABLE else
+             "⚫ Modo semántico — activa Gemini en Ajustes para el Modo Agente\n\n"
+             "- *¿Cuáles son las partes del contrato?*\n"
+             "- *¿Qué dice sobre penalidades?*\n"
+             "- *¿Cuándo vence el plazo?*")
         )
 
     if LLM_AVAILABLE:

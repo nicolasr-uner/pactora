@@ -878,3 +878,139 @@ def generate_response(
     except Exception as e:
         _log.error("[llm_service] generate_response falló: %s — tipo: %s", e, type(e).__name__)
         return None  # ask_question hace fallback a búsqueda semántica
+
+
+# ---------------------------------------------------------------------------
+# Agente JuanMitaBot — Gemini Function Calling
+# ---------------------------------------------------------------------------
+
+def run_agent_turn(
+    question: str,
+    history: Optional[List[Dict[str, str]]] = None,
+    system_prompt: str = JUANMITA_SYSTEM_PROMPT,
+    filter_metadata: Optional[Dict[str, Any]] = None,
+    max_iterations: int = 6,
+) -> Optional[str]:
+    """
+    Ejecuta JuanMitaBot como agente autónomo con Gemini Function Calling.
+
+    El modelo decide qué herramientas invocar y en qué orden hasta generar
+    una respuesta final en texto natural. Herramientas disponibles:
+        - buscar_contratos:     búsqueda semántica en ChromaDB
+        - obtener_perfil:       perfil estructurado de un contrato
+        - listar_contratos:     inventario con filtros tipo/riesgo
+        - comparar_contratos:   comparación paralela en tabla
+        - contratos_por_vencer: alertas de vencimiento
+        - resumen_portafolio:   estadísticas globales del portafolio
+
+    Retorna None si LLM no está disponible (rag_chatbot hace fallback a semántica).
+    Propaga ValueError si el rate limit está excedido (para mensaje amigable en UI).
+    """
+    if not LLM_AVAILABLE:
+        return None
+
+    try:
+        from google import genai  # type: ignore
+        from google.genai import types  # type: ignore
+        from core.agent_tools import get_tool_declarations, execute_tool
+
+        client = genai.Client(api_key=GEMINI_API_KEY)
+
+        # System prompt enriquecido con portafolio
+        portfolio_block = build_portfolio_context()
+        effective_system = system_prompt + (portfolio_block if portfolio_block else "")
+
+        # Hint de contexto si el usuario está viendo un contrato específico
+        if filter_metadata and filter_metadata.get("source"):
+            effective_system += (
+                f"\n\nCONTEXTO ACTUAL: El usuario está viendo el contrato "
+                f"'{filter_metadata['source']}'. Prioriza ese contrato al usar herramientas."
+            )
+
+        # Historial de conversación
+        contents: List[Any] = []
+        if history:
+            for msg in history[-6:]:
+                sdk_role = "user" if msg.get("role") == "user" else "model"
+                contents.append(
+                    types.Content(role=sdk_role, parts=[types.Part(text=msg.get("content", ""))])
+                )
+        contents.append(types.Content(role="user", parts=[types.Part(text=question)]))
+
+        tool_decls = get_tool_declarations()
+        config = types.GenerateContentConfig(
+            system_instruction=effective_system,
+            tools=[tool_decls],
+        )
+
+        # ── Loop agente ─────────────────────────────────────────────────────
+        for iteration in range(max_iterations):
+            _check_and_record_call()
+            _log.info("[agent] it=%d question=%s…", iteration + 1, question[:60])
+
+            response = client.models.generate_content(
+                model=_GEMINI_MODEL,
+                contents=contents,
+                config=config,
+            )
+
+            # Extraer function calls (compat. v0.x y v1.x del SDK)
+            try:
+                function_calls = response.function_calls or []
+            except AttributeError:
+                function_calls = [
+                    p.function_call
+                    for p in response.candidates[0].content.parts
+                    if getattr(p, "function_call", None)
+                ]
+
+            if not function_calls:
+                # Sin más tool calls — retornar respuesta de texto
+                text = getattr(response, "text", None)
+                if not text:
+                    for part in response.candidates[0].content.parts:
+                        if getattr(part, "text", None):
+                            text = part.text
+                            break
+                return text or ""
+
+            # Agregar respuesta del modelo (con function calls) al historial
+            contents.append(response.candidates[0].content)
+
+            # Ejecutar herramientas y construir respuestas
+            tool_parts = []
+            for fc in function_calls:
+                args = dict(fc.args) if fc.args else {}
+                result = execute_tool(fc.name, args)
+                _log.info("[agent] tool=%s args=%s → %d chars", fc.name, args, len(result))
+                # Construir Part de respuesta (compat. v0.x y v1.x)
+                try:
+                    part = types.Part.from_function_response(
+                        name=fc.name, response={"result": result}
+                    )
+                except AttributeError:
+                    part = types.Part(
+                        function_response=types.FunctionResponse(
+                            name=fc.name, response={"result": result}
+                        )
+                    )
+                tool_parts.append(part)
+
+            contents.append(types.Content(role="user", parts=tool_parts))
+
+        # Máximo de iteraciones alcanzado — pedir respuesta final sin tools
+        _log.warning("[agent] max_iterations alcanzado — respuesta final sin tools")
+        _check_and_record_call()
+        config_final = types.GenerateContentConfig(system_instruction=effective_system)
+        response_final = client.models.generate_content(
+            model=_GEMINI_MODEL,
+            contents=contents,
+            config=config_final,
+        )
+        return getattr(response_final, "text", "") or ""
+
+    except ValueError:
+        raise  # rate limit — propagar para mensaje amigable en UI
+    except Exception as e:
+        _log.error("[agent] run_agent_turn falló: %s", e, exc_info=True)
+        return None  # fallback a búsqueda semántica
