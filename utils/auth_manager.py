@@ -17,11 +17,21 @@ import streamlit as st
 
 _log = logging.getLogger("pactora")
 
-_SHEET_RANGE        = "Sheet1!A:G"
-_HEADERS            = ["email", "role", "allowed_types", "allowed_tags", "added_at", "added_by", "active"]
+_SHEET_RANGE        = "Sheet1!A:H"
+_HEADERS            = ["email", "role", "allowed_types", "allowed_tags", "features", "added_at", "added_by", "active"]
 _CACHE_TTL_SECONDS  = 120
 _USERS_CACHE_KEY    = "_auth_users_cache"
 _USERS_CACHE_TS_KEY = "_auth_users_cache_ts"
+
+# Funciones disponibles para control de acceso granular por usuario.
+# Los admins siempre tienen todas las funciones independientemente de este dict.
+FEATURES: dict[str, str] = {
+    "juanmitabot": "💬 JuanMitaBot Chat",
+    "resolver":    "🎯 Resolver con JuanMitaBot",
+    "analisis":    "⚖️ Análisis Legal",
+    "comparar":    "🔀 Comparar Contratos",
+    "exportar":    "📤 Exportar Informes",
+}
 
 CONTRACT_TYPES = [
     "PPA",
@@ -45,6 +55,7 @@ def _empty_user(email: str, role: str = "viewer", added_by: str = "system") -> d
         "role":           role,
         "allowed_types":  ["*"],
         "allowed_tags":   ["*"],
+        "features":       ["*"],
         "added_at":       datetime.now(timezone.utc).isoformat(),
         "added_by":       added_by,
         "active":         True,
@@ -89,34 +100,47 @@ def _load_users_from_sheets() -> dict | None:
             _write_headers_if_empty(service, sheet_id)
             return {"users": [], "updated_at": datetime.now(timezone.utc).isoformat()}
 
-        # Ignorar fila de headers
+        # Usar fila de headers para mapear columnas por nombre (robusto a cambios de esquema)
+        header_row = rows[0]
+        col = {h: i for i, h in enumerate(header_row)}
+
+        def _cell(row: list, key: str, default: str = "") -> str:
+            i = col.get(key, -1)
+            if i < 0 or i >= len(row):
+                return default
+            return str(row[i]).strip()
+
         users: list[dict] = []
         for row in rows[1:]:
             if not row:
                 continue
-            def _cell(i: int, default: str = "") -> str:
-                return row[i].strip() if i < len(row) else default
 
             try:
-                allowed_types = json.loads(_cell(2)) if _cell(2) else ["*"]
+                allowed_types = json.loads(_cell(row, "allowed_types")) if _cell(row, "allowed_types") else ["*"]
             except (json.JSONDecodeError, ValueError):
                 allowed_types = ["*"]
             try:
-                allowed_tags = json.loads(_cell(3)) if _cell(3) else []
+                allowed_tags = json.loads(_cell(row, "allowed_tags")) if _cell(row, "allowed_tags") else []
             except (json.JSONDecodeError, ValueError):
                 allowed_tags = []
+            try:
+                features_raw = _cell(row, "features")
+                features = json.loads(features_raw) if features_raw else ["*"]
+            except (json.JSONDecodeError, ValueError):
+                features = ["*"]
 
-            email = _cell(0).lower()
+            email = _cell(row, "email").lower()
             if not email:
                 continue
             users.append({
                 "email":         email,
-                "role":          _cell(1) or "viewer",
+                "role":          _cell(row, "role") or "viewer",
                 "allowed_types": allowed_types,
                 "allowed_tags":  allowed_tags,
-                "added_at":      _cell(4),
-                "added_by":      _cell(5),
-                "active":        _cell(6, "True").lower() == "true",
+                "features":      features,
+                "added_at":      _cell(row, "added_at"),
+                "added_by":      _cell(row, "added_by"),
+                "active":        _cell(row, "active", "True").lower() == "true",
             })
 
         _log.info("[auth_manager] %d usuarios cargados desde Sheets", len(users))
@@ -163,6 +187,7 @@ def _save_users_to_sheets(data: dict) -> bool:
                 u.get("role", "viewer"),
                 json.dumps(u.get("allowed_types", ["*"]), ensure_ascii=False),
                 json.dumps(u.get("allowed_tags", []), ensure_ascii=False),
+                json.dumps(u.get("features", ["*"]), ensure_ascii=False),
                 u.get("added_at", ""),
                 u.get("added_by", ""),
                 str(u.get("active", True)),
@@ -277,6 +302,24 @@ def get_user_permissions(email: str) -> dict:
     }
 
 
+def has_feature(email: str, feature: str) -> bool:
+    """
+    Verifica si el usuario tiene acceso a una función específica.
+    Los admins siempre tienen todas las funciones.
+    Viewers con features=["*"] o features=[] tienen todas las funciones (retrocompatibilidad).
+    """
+    u = _find_user(email)
+    if u is None:
+        return False
+    if u.get("role") == "admin":
+        return True
+    features = u.get("features", ["*"])
+    # [] tratado como ["*"] para retrocompatibilidad con usuarios creados antes de esta feature
+    if not features or "*" in features:
+        return True
+    return feature in features
+
+
 def can_view_contract(user_email: str, contract_metadata: dict) -> bool:
     perms = get_user_permissions(user_email)
     if perms["role"] == "admin":
@@ -298,6 +341,7 @@ def add_user(
     role: str = "viewer",
     allowed_types: list | None = None,
     allowed_tags: list | None = None,
+    features: list | None = None,
     added_by: str = "admin",
 ) -> tuple[bool, str]:
     email = email.lower().strip()
@@ -313,6 +357,8 @@ def add_user(
         new_user["allowed_types"] = allowed_types
     if allowed_tags is not None:
         new_user["allowed_tags"] = allowed_tags
+    if features is not None:
+        new_user["features"] = features
 
     users.append(new_user)
     if _save_users_to_sheets({"users": users}):
@@ -348,6 +394,7 @@ def update_user_permissions(
     role: str | None = None,
     allowed_types: list | None = None,
     allowed_tags: list | None = None,
+    features: list | None = None,
 ) -> tuple[bool, str]:
     email = email.lower().strip()
     users = get_all_users(force_reload=True)
@@ -361,6 +408,8 @@ def update_user_permissions(
         target["allowed_types"] = allowed_types
     if allowed_tags is not None:
         target["allowed_tags"] = allowed_tags
+    if features is not None:
+        target["features"] = features
 
     if _save_users_to_sheets({"users": users}):
         _invalidate_cache()

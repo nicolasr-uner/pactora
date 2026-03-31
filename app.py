@@ -111,6 +111,14 @@ juanmitabot_sidebar()
 # ─── Navegación ───────────────────────────────────────────────────────────────
 
 _is_admin = st.session_state.get("current_user_is_admin", False)
+_current_email = st.session_state.get("current_user_email", "")
+
+# Feature-gated pages
+try:
+    from utils.auth_manager import has_feature as _has_feature
+    _has_resolver = _has_feature(_current_email, "resolver") if _current_email else True
+except Exception:
+    _has_resolver = True  # si auth falla, mostrar la página (entorno dev)
 
 _sistema_pages = [
     st.Page("pages/ajustes.py", title="Ajustes", icon="⚙"),
@@ -120,11 +128,17 @@ if _is_admin:
         st.Page("pages/admin.py", title="Administración", icon="🔑")
     )
 
+_principal_pages = [
+    st.Page("pages/inicio.py",   title="Inicio",      icon="🏠", default=True),
+    st.Page("pages/chatbot.py",  title="JuanMitaBot", icon="🤖"),
+]
+if _has_resolver:
+    _principal_pages.append(
+        st.Page("pages/resolver.py", title="Resolver", icon="🎯")
+    )
+
 pg = st.navigation({
-    "Principal": [
-        st.Page("pages/inicio.py",      title="Inicio",         icon="🏠", default=True),
-        st.Page("pages/chatbot.py",     title="JuanMitaBot",    icon="🤖"),
-    ],
+    "Principal": _principal_pages,
     "Contratos": [
         st.Page("pages/biblioteca.py",  title="Biblioteca",     icon="📚"),
         st.Page("pages/legal.py",       title="Analisis Legal", icon="⚖"),
