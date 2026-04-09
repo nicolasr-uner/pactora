@@ -1,9 +1,12 @@
 """
 normativa_db.py — Base de datos normativa FNCER / Generación Distribuida para Unergy.
 Fuente estática (hardcoded). No requiere base de datos ni scraping en tiempo real.
+Países: Colombia, Ecuador, México, Brasil. v2.0 — multi-país.
 """
 from __future__ import annotations
 from typing import List, Dict, Any
+
+_VERSION = "2.0.0-multi-pais"  # cache-bust: no borrar
 
 NORMATIVA: List[Dict[str, Any]] = [
     {

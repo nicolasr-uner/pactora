@@ -1,11 +1,22 @@
 import streamlit as st
 from utils.shared import apply_styles, page_header, init_session_state, api_status_banner
-from core.normativa_db import (
-    NORMATIVA, NOVEDADES, NORMATIVA_POR_PAIS, NOVEDADES_POR_PAIS,
-    get_normativa_for_contract_type, get_normativa_summary_for_prompt, search_normativa,
-)
 import pandas as _pd
 from core.llm_service import LLM_AVAILABLE, generate_response
+
+# Importación defensiva — fallback si normativa_db.py es una versión anterior (sin multi-país)
+try:
+    from core.normativa_db import (
+        NORMATIVA, NOVEDADES, NORMATIVA_POR_PAIS, NOVEDADES_POR_PAIS,
+        get_normativa_for_contract_type, get_normativa_summary_for_prompt, search_normativa,
+    )
+except ImportError:
+    # Versión antigua: solo Colombia. Los demás países se inicializan vacíos.
+    from core.normativa_db import (  # type: ignore[no-redef]
+        NORMATIVA, NOVEDADES,
+        get_normativa_for_contract_type, get_normativa_summary_for_prompt, search_normativa,
+    )
+    NORMATIVA_POR_PAIS: dict = {"🇨🇴 Colombia": NORMATIVA}
+    NOVEDADES_POR_PAIS: dict = {"🇨🇴 Colombia": NOVEDADES}
 
 apply_styles()
 init_session_state()
