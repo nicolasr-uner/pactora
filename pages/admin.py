@@ -97,7 +97,7 @@ with tab_users:
                 "Agregado por":      u.get("added_by", "—"),
                 "Fecha":             u.get("added_at", "—")[:10],
             })
-        st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+        st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
 
         st.markdown("---")
         st.markdown("#### Eliminar usuario")

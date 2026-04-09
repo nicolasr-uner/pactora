@@ -125,7 +125,7 @@ if selected_src and selected_src in sources:
             with st.form("bib_chat_form", clear_on_submit=True):
                 doc_q = st.text_input("Pregunta", placeholder="¿Qué dice sobre...?",
                                       label_visibility="collapsed")
-                if st.form_submit_button("Enviar →", use_container_width=True) and doc_q:
+                if st.form_submit_button("Enviar →", width="stretch") and doc_q:
                     st.session_state[chat_sk].append({"role": "user", "content": doc_q})
                     with st.spinner("Consultando..."):
                         answer = st.session_state.chatbot.ask_question(
@@ -274,11 +274,11 @@ else:
                         unsafe_allow_html=True,
                     )
                     bc1, bc2 = st.columns(2)
-                    if bc1.button("Abrir", key=f"g_open_{doc['source']}", use_container_width=True):
+                    if bc1.button("Abrir", key=f"g_open_{doc['source']}", width="stretch"):
                         st.session_state["biblioteca_selected"] = doc["source"]
                         st.session_state["bib_show_chat"] = True
                         st.rerun()
-                    if bc2.button("⚖ Legal", key=f"g_legal_{doc['source']}", use_container_width=True):
+                    if bc2.button("⚖ Legal", key=f"g_legal_{doc['source']}", width="stretch"):
                         st.session_state["library_selected"] = doc["source"]
                         st.switch_page("pages/legal.py")
 
@@ -302,11 +302,11 @@ else:
                 f'{doc["ext"].upper()} · {doc["categoria"]}</span>',
                 unsafe_allow_html=True,
             )
-            if lc[4].button("Abrir", key=f"l_open_{doc['source']}", use_container_width=True):
+            if lc[4].button("Abrir", key=f"l_open_{doc['source']}", width="stretch"):
                 st.session_state["biblioteca_selected"] = doc["source"]
                 st.session_state["bib_show_chat"] = True
                 st.rerun()
-            if lc[5].button("⚖", key=f"l_legal_{doc['source']}", use_container_width=True,
+            if lc[5].button("⚖", key=f"l_legal_{doc['source']}", width="stretch",
                             help="Análisis Legal"):
                 st.session_state["library_selected"] = doc["source"]
                 st.switch_page("pages/legal.py")

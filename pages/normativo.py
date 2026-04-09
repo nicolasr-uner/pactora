@@ -167,7 +167,7 @@ with tab_cruce:
             return "PPA"
 
         if st.button("🔗 Cruzar con normativa", type="primary",
-                     key="btn_cruce", use_container_width=True):
+                     key="btn_cruce", width="stretch"):
             with st.spinner("Analizando contrato..."):
                 text = _get_text(selected)
                 ct   = _detect_type(selected, text)
@@ -192,7 +192,7 @@ with tab_cruce:
             st.markdown(f"**Contrato:** {cruce['contrato']} | **Tipo:** {cruce['tipo']}")
             st.dataframe(
                 _pd.DataFrame(cruce["rows"])[["Norma", "Tipo", "Mencionada", "Estado", "Resumen"]],
-                use_container_width=True, hide_index=True,
+                hide_index=True, width="stretch",
             )
             _men = sum(1 for r in cruce["rows"] if r["Mencionada"] == "Sí")
             score = int(_men / len(cruce["rows"]) * 100) if cruce["rows"] else 0
@@ -277,7 +277,7 @@ with tab_novedades:
         _buscar_ia = st.button(
             "🔍 Buscar noticias recientes con IA",
             type="primary", key=f"btn_nov_{pais_nov}",
-            disabled=not LLM_AVAILABLE, use_container_width=True,
+            disabled=not LLM_AVAILABLE, width="stretch",
         )
     if not LLM_AVAILABLE:
         st.caption("Activa Gemini en Ajustes para buscar novedades con IA.")
@@ -340,7 +340,7 @@ with tab_compliance:
     else:
         _comp_key = "_compliance_data"
         if st.button("📊 Calcular compliance del portfolio", type="primary",
-                     key="btn_compliance", use_container_width=True):
+                     key="btn_compliance", width="stretch"):
             _comp_data = []
             prog = st.progress(0)
             for i, src in enumerate(_sources):
@@ -376,7 +376,7 @@ with tab_compliance:
             _df["Estado"] = _df["score"].apply(
                 lambda x: "✅ Bueno" if x >= 60 else "⚠️ Revisar" if x >= 30 else "❌ Bajo")
             st.dataframe(_df[["contrato", "tipo", "menciones", "normas", "Score", "Estado"]],
-                         use_container_width=True, hide_index=True)
+                         hide_index=True, width="stretch")
 
             _avg = int(sum(d["score"] for d in comp_data) / len(comp_data)) if comp_data else 0
             mc1, mc2, mc3 = st.columns(3)
