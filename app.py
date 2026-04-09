@@ -114,33 +114,56 @@ init_session_state()
 dark_mode_toggle()
 juanmitabot_sidebar()
 
-# ─── Navegación ───────────────────────────────────────────────────────────────
+# ─── Navegación con filtrado por rol ──────────────────────────────────────────
 
-_is_admin = st.session_state.get("current_user_is_admin", False)
+_role = st.session_state.get("current_user_permissions", {}).get("role", "viewer")
+_is_admin   = _role == "admin"
+_is_legal   = _role in ("admin", "legal")
+_is_analista = _role in ("admin", "legal", "analista")
 
-_sistema_pages = [
-    st.Page("pages/ajustes.py", title="Ajustes", icon="⚙"),
+# Sección Principal — todos los roles
+_principal_pages = [
+    st.Page("pages/chatbot.py", title="JuanMitaBot", icon="🤖"),
 ]
-if _is_admin:
-    _sistema_pages.append(
-        st.Page("pages/admin.py", title="Administración", icon="🔑")
-    )
+if _is_analista:  # analista + legal + admin ven Inicio
+    _principal_pages.insert(0, st.Page("pages/inicio.py", title="Inicio", icon="🏠", default=True))
+else:
+    # viewer: la Biblioteca es la página por defecto
+    _principal_pages[0] = st.Page("pages/chatbot.py", title="JuanMitaBot", icon="🤖", default=True)
 
-pg = st.navigation({
-    "Principal": [
-        st.Page("pages/inicio.py",      title="Inicio",         icon="🏠", default=True),
-        st.Page("pages/chatbot.py",     title="JuanMitaBot",    icon="🤖"),
-    ],
-    "Contratos": [
-        st.Page("pages/biblioteca.py",  title="Biblioteca",     icon="📚"),
-        st.Page("pages/legal.py",       title="Analisis Legal", icon="⚖"),
-        st.Page("pages/plantillas.py",  title="Plantillas",     icon="📄"),
-    ],
-    "Analisis": [
-        st.Page("pages/metricas.py",    title="Metricas",         icon="📊"),
-        st.Page("pages/calendario.py",  title="Calendario",       icon="📅"),
-        st.Page("pages/normativo.py",   title="Gestor Normativo", icon="⚖"),
-    ],
-    "Sistema": _sistema_pages,
-})
+# Sección Contratos
+_contratos_pages = [
+    st.Page("pages/biblioteca.py", title="Biblioteca", icon="📚"),
+]
+if _is_legal:
+    _contratos_pages += [
+        st.Page("pages/legal.py",      title="Analisis Legal", icon="⚖"),
+        st.Page("pages/plantillas.py", title="Plantillas",     icon="📄"),
+    ]
+
+# Sección Análisis
+_analisis_pages = []
+if _is_analista:
+    _analisis_pages += [
+        st.Page("pages/metricas.py",   title="Metricas",         icon="📊"),
+        st.Page("pages/calendario.py", title="Calendario",       icon="📅"),
+        st.Page("pages/normativo.py",  title="Gestor Normativo", icon="⚖"),
+    ]
+
+# Sección Sistema
+_sistema_pages = []
+if _is_admin:
+    _sistema_pages += [
+        st.Page("pages/ajustes.py", title="Ajustes",         icon="⚙"),
+        st.Page("pages/admin.py",   title="Administración",  icon="🔑"),
+    ]
+
+# Construir navegación (solo secciones no vacías)
+_nav: dict = {"Principal": _principal_pages, "Contratos": _contratos_pages}
+if _analisis_pages:
+    _nav["Analisis"] = _analisis_pages
+if _sistema_pages:
+    _nav["Sistema"] = _sistema_pages
+
+pg = st.navigation(_nav)
 pg.run()

@@ -12,6 +12,7 @@ from utils.auth_manager import (
     update_user_permissions,
     is_admin,
     CONTRACT_TYPES,
+    ROLES,
     _invalidate_cache,
 )
 
@@ -47,6 +48,23 @@ tab_users, tab_add, tab_perms = st.tabs([
     "🔧 Editar permisos",
 ])
 
+# ─── Helpers visuales ────────────────────────────────────────────────────────
+
+_ROLE_LABELS = {
+    "admin":    "🔑 Admin",
+    "legal":    "⚖ Legal",
+    "analista": "📊 Analista",
+    "viewer":   "👁 Viewer",
+}
+
+def _role_label(r: str) -> str:
+    return _ROLE_LABELS.get(r, f"• {r}")
+
+_ROLE_OPTIONS = list(ROLES.keys())
+
+def _role_fmt(r: str) -> str:
+    return ROLES.get(r, r)
+
 
 # ════════════════════════════════════════════════════════════════════════════════
 # TAB 1 — Lista de usuarios
@@ -74,12 +92,12 @@ with tab_users:
             allowed = u.get("allowed_types", ["*"])
             rows.append({
                 "Correo":            u["email"],
-                "Rol":               "🔑 Admin" if u.get("role") == "admin" else "👁 Viewer",
+                "Rol":               _role_label(u.get("role", "viewer")),
                 "Tipos de contrato": "✅ Todos" if "*" in allowed else ", ".join(allowed),
                 "Agregado por":      u.get("added_by", "—"),
                 "Fecha":             u.get("added_at", "—")[:10],
             })
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
 
         st.markdown("---")
         st.markdown("#### Eliminar usuario")
@@ -110,9 +128,10 @@ with tab_add:
         new_email = st.text_input("Correo electrónico de Google", placeholder="usuario@ejemplo.com")
         new_role  = st.radio(
             "Rol",
-            options=["viewer", "admin"],
-            format_func=lambda r: "👁 Viewer — solo lectura" if r == "viewer" else "🔑 Admin — acceso total + administración",
-            horizontal=True,
+            options=_ROLE_OPTIONS,
+            format_func=_role_fmt,
+            index=_ROLE_OPTIONS.index("viewer"),
+            horizontal=False,
         )
 
         st.markdown("**Tipos de contrato permitidos**")
@@ -136,7 +155,10 @@ with tab_add:
             )
             if ok:
                 tipos_str = "todos los tipos" if "*" in selected_types else ", ".join(selected_types)
-                st.success(f"✅ '{new_email}' agregado como **{new_role}** con acceso a: {tipos_str}.")
+                st.success(
+                    f"✅ **'{new_email}'** agregado como **{_role_label(new_role)}** "
+                    f"con acceso a: {tipos_str}."
+                )
                 st.rerun()
             else:
                 st.error(f"No se pudo agregar: {msg}")
@@ -163,13 +185,17 @@ with tab_perms:
         target = next((u for u in active_for_edit if u["email"] == email_to_edit), None)
 
         if target:
+            current_role = target.get("role", "viewer")
+            if current_role not in _ROLE_OPTIONS:
+                current_role = "viewer"
+
             with st.form("form_edit_perms"):
                 edit_role = st.radio(
                     "Rol",
-                    options=["viewer", "admin"],
-                    index=0 if target.get("role") == "viewer" else 1,
-                    format_func=lambda r: "👁 Viewer" if r == "viewer" else "🔑 Admin",
-                    horizontal=True,
+                    options=_ROLE_OPTIONS,
+                    index=_ROLE_OPTIONS.index(current_role),
+                    format_func=_role_fmt,
+                    horizontal=False,
                     key="edit_role_radio",
                 )
 
@@ -199,7 +225,7 @@ with tab_perms:
                     allowed_types=edit_types if edit_types else ["*"],
                 )
                 if ok:
-                    st.success(f"✅ Permisos de '{email_to_edit}' actualizados.")
+                    st.success(f"✅ Permisos de '{email_to_edit}' actualizados a **{_role_label(edit_role)}**.")
                     st.rerun()
                 else:
                     st.error(f"Error: {msg}")
@@ -207,16 +233,22 @@ with tab_perms:
 
 # ─── Info ─────────────────────────────────────────────────────────────────────
 
-with st.expander("ℹ️ ¿Cómo funcionan los permisos?"):
+with st.expander("ℹ️ ¿Cómo funcionan los roles y permisos?"):
     st.markdown("""
-**Roles:**
-- **Admin** — acceso completo + este panel de administración.
-- **Viewer** — solo puede ver los contratos según los tipos asignados.
+**Roles disponibles:**
+
+| Rol | Icono | Acceso |
+|-----|-------|--------|
+| **Admin** | 🔑 | Acceso completo + panel de administración + ajustes |
+| **Legal Senior** | ⚖ | Inicio, JuanMitaBot, Biblioteca, Análisis Legal, Plantillas, Normativo |
+| **Analista** | 📊 | Inicio, JuanMitaBot, Biblioteca, Métricas, Calendario, Normativo |
+| **Viewer** | 👁 | Solo JuanMitaBot y Biblioteca (lectura) |
 
 **Tipos de contrato:**
 - `✅ Todos` — puede ver cualquier contrato.
 - Tipos específicos (ej. `PPA`, `EPC`) — solo ve contratos cuyo nombre o tipo coincida.
 
 **Almacenamiento:** Los datos se guardan en `_pactora_auth_users.json` en tu carpeta raíz de Google Drive.
+Si Drive no está disponible, se guarda localmente como respaldo temporal.
 Los admins definidos en `secrets.toml → auth_config.admin_emails` siempre tienen acceso como respaldo.
     """)

@@ -2,8 +2,8 @@
 auth_manager.py — Gestión de acceso y permisos de usuario en Pactora CLM.
 
 Almacenamiento persistente: _pactora_auth_users.json en Google Drive (Shared Drive).
-Todas las llamadas a Drive usan supportsAllDrives=True para compatibilidad con Shared Drives.
-Fallback: st.secrets["auth_config"]["admin_emails"] si Drive no está disponible.
+Fallback local: _pactora_auth_users_local.json en el directorio raíz de la app.
+Fallback secretos: st.secrets["auth_config"]["admin_emails"] si ambos fallan.
 """
 
 from __future__ import annotations
@@ -11,6 +11,7 @@ from __future__ import annotations
 import io
 import json
 import logging
+import os
 import time
 from datetime import datetime, timezone
 from typing import Any
@@ -19,10 +20,11 @@ import streamlit as st
 
 _log = logging.getLogger("pactora")
 
-AUTH_USERS_FILENAME = "_pactora_auth_users.json"
-_CACHE_TTL_SECONDS  = 120
-_USERS_CACHE_KEY    = "_auth_users_cache"
-_USERS_CACHE_TS_KEY = "_auth_users_cache_ts"
+AUTH_USERS_FILENAME  = "_pactora_auth_users.json"
+_LOCAL_USERS_FILE    = "./_pactora_auth_users_local.json"
+_CACHE_TTL_SECONDS   = 120
+_USERS_CACHE_KEY     = "_auth_users_cache"
+_USERS_CACHE_TS_KEY  = "_auth_users_cache_ts"
 
 CONTRACT_TYPES = [
     "PPA",
@@ -37,6 +39,25 @@ CONTRACT_TYPES = [
     "Otro",
 ]
 
+# ─── Roles disponibles ────────────────────────────────────────────────────────
+ROLES: dict[str, str] = {
+    "admin":    "🔑 Admin — acceso total + administración",
+    "legal":    "⚖ Legal Senior — contratos, análisis legal y normativa",
+    "analista": "📊 Analista — métricas, calendario y reportes (sin análisis legal)",
+    "viewer":   "👁 Viewer — solo lectura (JuanMitaBot + Biblioteca)",
+}
+
+# Páginas accesibles por rol (para uso en app.py)
+ROLE_PAGES: dict[str, set[str]] = {
+    "admin":    {"inicio", "chatbot", "biblioteca", "legal", "plantillas",
+                 "metricas", "calendario", "normativo", "ajustes", "admin"},
+    "legal":    {"inicio", "chatbot", "biblioteca", "legal", "plantillas",
+                 "normativo"},
+    "analista": {"inicio", "chatbot", "biblioteca", "metricas",
+                 "calendario", "normativo"},
+    "viewer":   {"chatbot", "biblioteca"},
+}
+
 
 # ─── Estructura de usuario ─────────────────────────────────────────────────────
 
@@ -50,6 +71,33 @@ def _empty_user(email: str, role: str = "viewer", added_by: str = "system") -> d
         "added_by":       added_by,
         "active":         True,
     }
+
+
+# ─── Local fallback helpers ────────────────────────────────────────────────────
+
+def _save_users_locally(data: dict) -> bool:
+    """Guarda _pactora_auth_users_local.json en el directorio de la app."""
+    try:
+        with open(_LOCAL_USERS_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        _log.info("[auth_manager] Usuarios guardados localmente (%d)", len(data.get("users", [])))
+        return True
+    except Exception as e:
+        _log.warning("[auth_manager] No se pudo guardar localmente: %s", e)
+        return False
+
+
+def _load_users_locally() -> dict | None:
+    """Carga _pactora_auth_users_local.json si existe."""
+    try:
+        if os.path.exists(_LOCAL_USERS_FILE):
+            with open(_LOCAL_USERS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            _log.info("[auth_manager] Usuarios cargados desde archivo local")
+            return data
+    except Exception as e:
+        _log.warning("[auth_manager] No se pudo leer archivo local: %s", e)
+    return None
 
 
 # ─── Drive helpers ─────────────────────────────────────────────────────────────
@@ -105,7 +153,11 @@ def _load_users_from_drive() -> dict | None:
 
 
 def _save_users_to_drive(data: dict) -> bool:
-    """Guarda (crea o actualiza) _pactora_auth_users.json en Drive."""
+    """Guarda (crea o actualiza) _pactora_auth_users.json en Drive.
+    Si Drive falla (ej. cuota excedida), guarda localmente como fallback.
+    Retorna True si alguno de los dos métodos tiene éxito.
+    """
+    drive_ok = False
     try:
         from utils.auth_helper import get_drive_service_sa
         from googleapiclient.http import MediaIoBaseUpload
@@ -113,49 +165,60 @@ def _save_users_to_drive(data: dict) -> bool:
         service = get_drive_service_sa()
         if not service:
             _log.warning("[auth_manager] Service Account no disponible")
-            return False
-
-        root_id = _get_drive_root_id()
-        data["updated_at"] = datetime.now(timezone.utc).isoformat()
-        payload = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
-        media   = MediaIoBaseUpload(io.BytesIO(payload), mimetype="application/json", resumable=False)
-
-        # Buscar si ya existe
-        query_parts = [f"name='{AUTH_USERS_FILENAME}'", "trashed=false"]
-        if root_id:
-            query_parts.append(f"'{root_id}' in parents")
-
-        results  = service.files().list(
-            q=" and ".join(query_parts),
-            fields="files(id)",
-            pageSize=1,
-            includeItemsFromAllDrives=True,
-            supportsAllDrives=True,
-        ).execute()
-        existing = results.get("files", [])
-
-        if existing:
-            service.files().update(
-                fileId=existing[0]["id"],
-                media_body=media,
-                supportsAllDrives=True,
-            ).execute()
         else:
-            meta: dict[str, Any] = {"name": AUTH_USERS_FILENAME, "mimeType": "application/json"}
+            root_id = _get_drive_root_id()
+            data["updated_at"] = datetime.now(timezone.utc).isoformat()
+            payload = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
+            media   = MediaIoBaseUpload(io.BytesIO(payload), mimetype="application/json", resumable=False)
+
+            # Buscar si ya existe
+            query_parts = [f"name='{AUTH_USERS_FILENAME}'", "trashed=false"]
             if root_id:
-                meta["parents"] = [root_id]
-            service.files().create(
-                body=meta,
-                media_body=media,
-                fields="id",
+                query_parts.append(f"'{root_id}' in parents")
+
+            results  = service.files().list(
+                q=" and ".join(query_parts),
+                fields="files(id)",
+                pageSize=1,
+                includeItemsFromAllDrives=True,
                 supportsAllDrives=True,
             ).execute()
+            existing = results.get("files", [])
 
-        _log.info("[auth_manager] Usuarios guardados en Drive (%d)", len(data.get("users", [])))
-        return True
+            if existing:
+                service.files().update(
+                    fileId=existing[0]["id"],
+                    media_body=media,
+                    supportsAllDrives=True,
+                ).execute()
+            else:
+                meta: dict[str, Any] = {"name": AUTH_USERS_FILENAME, "mimeType": "application/json"}
+                if root_id:
+                    meta["parents"] = [root_id]
+                service.files().create(
+                    body=meta,
+                    media_body=media,
+                    fields="id",
+                    supportsAllDrives=True,
+                ).execute()
+
+            _log.info("[auth_manager] Usuarios guardados en Drive (%d)", len(data.get("users", [])))
+            drive_ok = True
+
     except Exception as e:
         _log.error("[auth_manager] Error al guardar en Drive: %s", e)
+
+    # Fallback local — siempre intentar guardar localmente como backup
+    local_ok = _save_users_locally(data)
+
+    if not drive_ok and not local_ok:
+        _log.error("[auth_manager] No se pudo guardar ni en Drive ni localmente.")
         return False
+
+    if not drive_ok:
+        _log.warning("[auth_manager] Drive falló — datos guardados solo localmente (no persistirán entre deploys).")
+
+    return True
 
 
 # ─── Secrets fallback ─────────────────────────────────────────────────────────
@@ -201,8 +264,14 @@ def get_all_users(force_reload: bool = False) -> list[dict]:
             if cached is not None:
                 return cached
 
+    # Intentar Drive primero, luego local, luego bootstrap
     drive_data = _load_users_from_drive()
     if drive_data is None:
+        _log.warning("[auth_manager] Drive no disponible, intentando archivo local...")
+        drive_data = _load_users_locally()
+
+    if drive_data is None:
+        _log.warning("[auth_manager] Sin datos remotos ni locales — bootstrapping desde secrets.")
         drive_data = _bootstrap_initial_data()
         _save_users_to_drive(drive_data)
 
@@ -237,6 +306,14 @@ def is_authorized(email: str) -> bool:
 def is_admin(email: str) -> bool:
     u = _find_user(email)
     return u is not None and u.get("role") == "admin"
+
+
+def get_user_role(email: str) -> str:
+    """Retorna el rol del usuario: 'admin', 'legal', 'analista' o 'viewer'."""
+    u = _find_user(email)
+    if u is None:
+        return "viewer"
+    return u.get("role", "viewer")
 
 
 def get_user_permissions(email: str) -> dict:
@@ -277,6 +354,8 @@ def add_user(
     email = email.lower().strip()
     if not email or "@" not in email:
         return False, "Correo inválido."
+    if role not in ROLES:
+        return False, f"Rol inválido. Opciones: {', '.join(ROLES.keys())}"
 
     users = get_all_users(force_reload=True)
     if any(u["email"] == email for u in users):
@@ -292,7 +371,7 @@ def add_user(
     if _save_users_to_drive({"users": users}):
         _invalidate_cache()
         return True, ""
-    return False, "No se pudo guardar en Drive. Verifica la conexión."
+    return False, "No se pudo guardar los datos de usuario."
 
 
 def remove_user(email: str) -> tuple[bool, str]:
@@ -314,7 +393,7 @@ def remove_user(email: str) -> tuple[bool, str]:
     if _save_users_to_drive({"users": users}):
         _invalidate_cache()
         return True, ""
-    return False, "No se pudo guardar en Drive."
+    return False, "No se pudo guardar los cambios."
 
 
 def update_user_permissions(
@@ -328,6 +407,8 @@ def update_user_permissions(
     target = next((u for u in users if u["email"] == email), None)
     if target is None:
         return False, "Usuario no encontrado."
+    if role is not None and role not in ROLES:
+        return False, f"Rol inválido. Opciones: {', '.join(ROLES.keys())}"
 
     if role is not None:
         target["role"] = role
@@ -339,4 +420,4 @@ def update_user_permissions(
     if _save_users_to_drive({"users": users}):
         _invalidate_cache()
         return True, ""
-    return False, "No se pudo guardar en Drive."
+    return False, "No se pudo guardar los cambios."

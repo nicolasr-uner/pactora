@@ -155,8 +155,8 @@ with tab_cruce:
                 return "Comunidades Energéticas"
             return "PPA"
 
-        if st.button("🔗 Cruzar con normativa", type="primary", use_container_width=True,
-                     key="btn_cruce"):
+        if st.button("🔗 Cruzar con normativa", type="primary",
+                     key="btn_cruce", use_container_width=True):
             with st.spinner("Analizando contrato..."):
                 text = _get_text(selected)
                 ct   = _detect_type(selected, text)
@@ -265,8 +265,8 @@ with tab_novedades:
         _nov_key = f"_novedades_ia_{pais_nov}"
         _buscar_ia = st.button(
             "🔍 Buscar noticias recientes con IA",
-            type="primary", use_container_width=True, key=f"btn_nov_{pais_nov}",
-            disabled=not LLM_AVAILABLE,
+            type="primary", key=f"btn_nov_{pais_nov}",
+            disabled=not LLM_AVAILABLE, use_container_width=True,
         )
     if not LLM_AVAILABLE:
         st.caption("Activa Gemini en Ajustes para buscar novedades con IA.")
@@ -316,7 +316,7 @@ with tab_novedades:
                 unsafe_allow_html=True,
             )
             if nov.get("url"):
-                st.link_button("🔗 Ver fuente oficial", nov["url"], use_container_width=True)
+                st.link_button("🔗 Ver fuente oficial", nov["url"])
 
 # ─── TAB 4: Compliance Dashboard ─────────────────────────────────────────────
 with tab_compliance:
@@ -329,7 +329,7 @@ with tab_compliance:
     else:
         _comp_key = "_compliance_data"
         if st.button("📊 Calcular compliance del portfolio", type="primary",
-                     use_container_width=True, key="btn_compliance"):
+                     key="btn_compliance", use_container_width=True):
             _comp_data = []
             prog = st.progress(0)
             for i, src in enumerate(_sources):
