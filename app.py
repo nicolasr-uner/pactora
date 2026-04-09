@@ -1,4 +1,10 @@
+import os
 import sys
+
+# Fix: Python 3.14 + protobuf >=4 C-extension rejects old opentelemetry pb2 files.
+# Forzar implementación Python pura evita el check _CheckCalledFromGeneratedFile().
+# También aplica a onnxruntime que usa los mismos descriptors.
+os.environ.setdefault("PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION", "python")
 
 # Fix: Python 3.14 PEP 649 breaks pydantic v1 metaclass annotation reading.
 if sys.version_info >= (3, 14):

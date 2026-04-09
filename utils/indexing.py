@@ -18,6 +18,48 @@ CHROMADB_BACKUP_FILENAME = "_pactora_chromadb_backup.zip"
 CHROMADB_DIR = "./chroma_db"
 INDEX_METADATA_FILE = "./_pactora_index_metadata.json"
 
+# ─── Detección de tipo de contrato ────────────────────────────────────────────
+
+_CONTRACT_TYPE_KEYWORDS = [
+    # PPA — Power Purchase Agreement
+    ("PPA", "PPA"), ("POWER PURCHASE", "PPA"), ("COMPRAVENTA DE ENERGÍA", "PPA"),
+    ("SUMINISTRO DE ENERGÍA", "PPA"), ("ENERGY SUPPLY", "PPA"),
+    # EPC — Engineering, Procurement & Construction
+    ("EPC", "EPC"), ("INGENIERÍA, PROCURA", "EPC"), ("ENGINEERING, PROCUREMENT", "EPC"),
+    ("DISEÑO Y CONSTRUCCIÓN", "EPC"), ("LLAVE EN MANO", "EPC"),
+    # O&M — Operación y Mantenimiento
+    ("O&M", "O&M"), ("OAM", "O&M"), ("OPERACIÓN Y MANTENIMIENTO", "O&M"),
+    ("OPERATION AND MAINTENANCE", "O&M"), ("MANTENIMIENTO Y OPERACIÓN", "O&M"),
+    # SHA — Shareholders Agreement
+    ("SHA", "SHA"), ("SHAREHOLDERS", "SHA"), ("ACCIONISTAS", "SHA"),
+    ("PACTO DE ACCIONISTAS", "SHA"),
+    # NDA — Non-Disclosure Agreement
+    ("NDA", "NDA"), ("CONFIDENCIALIDAD", "NDA"), ("CONFIDENTIALITY", "NDA"),
+    ("NO DIVULGACIÓN", "NDA"), ("NON-DISCLOSURE", "NDA"),
+    # Representación de Frontera
+    ("FRONTERA", "Rep. Frontera"), ("REPRESENTACIÓN DE FRONTERA", "Rep. Frontera"),
+    # Arriendo / Lease
+    ("ARRIENDO", "Arriendo"), ("ARRENDAMIENTO", "Arriendo"), ("LEASE", "Arriendo"),
+    ("SERVIDUMBRE", "Arriendo"),
+    # Fiducia
+    ("FIDUCIA", "Fiducia"), ("FIDEICOMISO", "Fiducia"), ("ENCARGO FIDUCIARIO", "Fiducia"),
+    # Documentos corporativos
+    ("ACTA ", "Acta"), ("MINUTA", "Acta"), ("ESTATUTOS", "Acta"),
+    ("PODER ", "Poder"), ("MANDATO", "Poder"),
+]
+
+
+def _detect_contract_type(name: str, text_snippet: str = "") -> str:
+    """
+    Detecta el tipo de contrato combinando el nombre del archivo con las
+    primeras palabras del texto extraído. Retorna 'General' si no hay match.
+    """
+    combined = (name + " " + text_snippet[:400]).upper()
+    for keyword, tipo in _CONTRACT_TYPE_KEYWORDS:
+        if keyword in combined:
+            return tipo
+    return "General"
+
 # ─── Estado del proceso de indexación (compartido entre threads) ───────────────
 _startup_index_triggered = False
 _startup_index_lock = threading.Lock()
@@ -286,7 +328,11 @@ def _bg_startup_index(api_key, drive_root_id, drive_api_key):
                                 prog["ocr_quota_error"] = True
                                 log.warning("OCR cuota agotada: %s — omitido", f["name"])
                             elif txt and not txt.startswith("Error"):
-                                docs.append((txt, f["name"], {"drive_id": f["id"]}))
+                                contract_type = _detect_contract_type(f["name"], txt)
+                                docs.append((txt, f["name"], {
+                                    "drive_id": f["id"],
+                                    "contract_type": contract_type,
+                                }))
                                 prog["downloaded"] += 1
                                 ext = _ext_from_name(f["name"])
                                 prog["file_counts"][ext] = prog["file_counts"].get(ext, 0) + 1
@@ -295,6 +341,7 @@ def _bg_startup_index(api_key, drive_root_id, drive_api_key):
                                     "indexed_at": datetime.datetime.utcnow().isoformat(),
                                     "size": f.get("size", 0),
                                     "ext": ext,
+                                    "contract_type": contract_type,
                                 }
                                 log.info("OK (%d/%d): %s — %d chars",
                                          prog["downloaded"], prog["total"], f["name"], len(txt))
@@ -411,7 +458,8 @@ def run_drive_indexation(drive_root_id: str, drive_api_key: str):
                     if fio:
                         txt = extract_text_from_file(fio, f["name"])
                         if txt and not txt.startswith("Error"):
-                            docs.append((txt, f["name"], {}))
+                            contract_type = _detect_contract_type(f["name"], txt)
+                            docs.append((txt, f["name"], {"drive_id": f["id"], "contract_type": contract_type}))
                         else:
                             skipped.append(f["name"])
                     else:

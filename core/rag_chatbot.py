@@ -110,7 +110,7 @@ class RAGChatbot:
         if self.vectorstore is None:
             return context_text, sources
         try:
-            search_kwargs: Dict[str, Any] = {"k": 6}
+            search_kwargs: Dict[str, Any] = {"k": 10}
             if filter_metadata:
                 search_kwargs["filter"] = filter_metadata
             docs = self.vectorstore.similarity_search(question, **search_kwargs)
@@ -194,3 +194,31 @@ class RAGChatbot:
             }
         except Exception:
             return {"total_chunks": 0, "total_docs": len(self._indexed_sources), "sources": self._indexed_sources}
+
+    def get_contract_registry(self) -> List[Dict[str, Any]]:
+        """
+        Retorna un registro estructurado de todos los contratos indexados.
+        Cada entrada contiene: source, contract_type, drive_id, indexed_at.
+        Usa los metadatos almacenados en ChromaDB — un dict por documento único.
+        """
+        if self.vectorstore is None:
+            return []
+        try:
+            data = self.vectorstore.get(include=["metadatas"])
+            metadatas = data.get("metadatas", [])
+            seen: Dict[str, Dict[str, Any]] = {}
+            for m in metadatas:
+                if not m:
+                    continue
+                src = m.get("source", "")
+                if not src or src in seen:
+                    continue
+                seen[src] = {
+                    "source": src,
+                    "contract_type": m.get("contract_type", "General"),
+                    "drive_id": m.get("drive_id", ""),
+                    "indexed_at": m.get("indexed_at", ""),
+                }
+            return sorted(seen.values(), key=lambda x: x["source"])
+        except Exception:
+            return []

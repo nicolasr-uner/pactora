@@ -518,8 +518,12 @@ with tab_upload:
                     "original": text, "draft": text, "history": []
                 }
                 with st.spinner("Indexando en JuanMitaChat..."):
+                    from utils.indexing import _detect_contract_type
                     ok, msg = st.session_state.chatbot.vector_ingest(
-                        text, up.name, {"file_type": up.name.split(".")[-1]}
+                        text, up.name, {
+                            "file_type": up.name.split(".")[-1],
+                            "contract_type": _detect_contract_type(up.name, text),
+                        }
                     )
                 if ok:
                     st.info(f"Indexado: {msg}")

@@ -51,8 +51,8 @@ with st.expander("🔧 Diagnóstico del sistema", expanded=False):
             try:
                 __import__(lib)
                 st.write(f"✅ {name}")
-            except ImportError as _ie:
-                st.write(f"❌ {name}: {_ie}")
+            except Exception as _ie:
+                st.write(f"❌ {name}: {type(_ie).__name__}")
 
     # Metadata JSON de indexación
     try:
@@ -155,7 +155,8 @@ if uploaded_files:
                     except Exception as ex:
                         txt = f"Error: {ex}"
                     if txt and not txt.startswith("Error"):
-                        docs.append((txt, name, {}))
+                        from utils.indexing import _detect_contract_type
+                        docs.append((txt, name, {"contract_type": _detect_contract_type(name, txt)}))
                     else:
                         reason = txt[:120] if txt else "sin texto (PDF escaneado o imagen sin OCR)"
                         errors.append(f"**{name}**: {reason}")

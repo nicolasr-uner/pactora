@@ -456,9 +456,11 @@ def test_gemini_connection() -> Tuple[bool, str]:
     """
     if not LLM_AVAILABLE:
         return False, "GEMINI_API_KEY no configurada"
-    client = _get_client()
-    if client is None:
-        return False, "No se pudo inicializar el cliente Gemini"
+    try:
+        from google import genai  # type: ignore
+        client = genai.Client(api_key=GEMINI_API_KEY)
+    except Exception as e:
+        return False, f"No se pudo inicializar el cliente Gemini: {e}"
     for model in _GEMINI_MODEL_CHAIN:
         try:
             resp = _call_gemini_single("Responde exactamente: OK", model, None, client)
@@ -539,47 +541,74 @@ def analyze_risk(text: str, contract_type: str = "General") -> dict:
 
 def build_portfolio_context() -> str:
     """
-    Genera un bloque de contexto dinámico con el estado actual del portafolio de contratos.
-    Se inyecta en el system prompt de JuanMitaBot para que conozca el portafolio.
+    Genera un bloque de contexto dinámico con el registro estructurado del portafolio.
+    Usa los metadatos almacenados en ChromaDB (contract_type por documento) para
+    producir un inventario preciso que se inyecta en el system prompt de JuanMitaBot.
     """
     try:
         import streamlit as st
         cb = st.session_state.get("chatbot")
         if not cb:
             return ""
-        stats = cb.get_stats()
-        total = stats.get("total_docs", 0)
-        sources = stats.get("sources", [])
-        if total == 0:
-            return "\nESTADO DEL PORTAFOLIO: Sin contratos indexados actualmente."
 
-        # Clasificar contratos por tipo (detección simple por nombre)
-        _TIPO_KWS = [
-            ("PPA", "PPA"), ("EPC", "EPC"), ("O&M", "O&M"), ("OAM", "O&M"),
-            ("SHA", "SHA"), ("NDA", "NDA"), ("ARRIENDO", "Arriendo"),
-            ("FIDUCIA", "Fiducia"), ("FRONTERA", "Rep. Frontera"),
-        ]
-        def _detect_type(name: str) -> str:
-            u = name.upper()
-            for kw, tipo in _TIPO_KWS:
-                if kw in u:
-                    return tipo
-            return "General"
+        # Usar registry enriquecido (incluye contract_type de metadata ChromaDB)
+        registry: List[Dict[str, Any]] = []
+        if hasattr(cb, "get_contract_registry"):
+            registry = cb.get_contract_registry()
 
+        # Fallback: construir registry básico desde stats si el método no está disponible
+        # o si los contratos fueron indexados antes de esta versión (sin contract_type en meta)
+        if not registry:
+            stats = cb.get_stats()
+            sources = stats.get("sources", [])
+            if not sources:
+                return "\nMEMORIA DE CONTRATOS: Sin contratos indexados actualmente."
+            _TIPO_KWS = [
+                ("PPA", "PPA"), ("EPC", "EPC"), ("O&M", "O&M"), ("OAM", "O&M"),
+                ("SHA", "SHA"), ("NDA", "NDA"), ("ARRIENDO", "Arriendo"),
+                ("FIDUCIA", "Fiducia"), ("FRONTERA", "Rep. Frontera"),
+            ]
+            def _guess_type(name: str) -> str:
+                u = name.upper()
+                for kw, tipo in _TIPO_KWS:
+                    if kw in u:
+                        return tipo
+                return "General"
+            registry = [{"source": s, "contract_type": _guess_type(s)} for s in sources]
+
+        if not registry:
+            return "\nMEMORIA DE CONTRATOS: Sin contratos indexados actualmente."
+
+        total = len(registry)
+
+        # Conteo por tipo
         type_counts: Dict[str, int] = {}
-        for src in sources:
-            t = _detect_type(src)
+        for r in registry:
+            t = r.get("contract_type", "General")
             type_counts[t] = type_counts.get(t, 0) + 1
+        type_summary = ", ".join(
+            f"{cnt} {tipo}" for tipo, cnt in sorted(type_counts.items())
+        )
 
-        type_summary = ", ".join(f"{cnt} {tipo}" for tipo, cnt in sorted(type_counts.items()))
-        src_list = "\n".join(f"  - {s}" for s in sources[:20])
-        more = f"\n  … y {len(sources) - 20} contratos más" if len(sources) > 20 else ""
+        # Registro compacto: tipo + nombre (máx 60 contratos para no saturar tokens)
+        lines = []
+        for r in registry[:60]:
+            tipo = r.get("contract_type", "General")
+            src = r.get("source", "")
+            lines.append(f"  • [{tipo}] {src}")
+        more = f"\n  … y {total - 60} contratos más" if total > 60 else ""
+        registry_block = "\n".join(lines) + more
 
         return (
-            f"\nESTADO ACTUAL DEL PORTAFOLIO:\n"
-            f"- Total de contratos indexados: {total}\n"
-            f"- Tipos: {type_summary}\n"
-            f"- Contratos disponibles:\n{src_list}{more}\n"
+            f"\n\nMEMORIA DEL PORTAFOLIO ({total} contrato(s) indexados):\n"
+            f"Distribución: {type_summary}\n\n"
+            f"Registro completo de contratos disponibles:\n"
+            f"{registry_block}\n\n"
+            f"INSTRUCCIÓN DE MEMORIA: Cuando el usuario pregunte qué contratos existen, "
+            f"cuántos hay, de qué tipo, o si un contrato específico está disponible — "
+            f"responde directamente con esta memoria. Para el CONTENIDO (cláusulas, "
+            f"fechas, partes, montos), usa siempre el CONTEXTO DE CONTRATOS RECUPERADO "
+            f"que se adjunta en cada pregunta.\n"
         )
     except Exception:
         return ""
