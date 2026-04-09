@@ -300,6 +300,293 @@ NOVEDADES: List[Dict[str, Any]] = [
 ]
 
 
+# ─── Datos regulatorios por país ──────────────────────────────────────────────
+
+NORMATIVA_ECUADOR: List[Dict[str, Any]] = [
+    {
+        "id": "lose_2015_ec", "tipo": "Ley", "numero": "LOSE", "año": 2015,
+        "nombre": "Ley Orgánica del Sector Eléctrico (LOSE)",
+        "titulo": "Marco regulatorio del sector eléctrico ecuatoriano",
+        "entidad": "Asamblea Nacional del Ecuador", "fecha": "2015-01-16", "estado": "Vigente",
+        "url": "https://www.regulacionelectrica.gob.ec",
+        "resumen": "Define el marco institucional del sector eléctrico. Crea la ARCERNNR como ente regulador. Establece las actividades de generación, transmisión, distribución y comercialización. Promueve el desarrollo de energías renovables.",
+        "articulos_clave": [
+            {"articulo": "Art. 3", "tema": "Principios del sector eléctrico"},
+            {"articulo": "Art. 10", "tema": "Creación de la ARCERNNR"},
+            {"articulo": "Art. 63", "tema": "Autogeneración y generación distribuida"},
+        ],
+        "aplica_a": ["PPA", "EPC", "O&M", "Autogeneración"],
+        "tags": ["LOSE", "ARCERNNR", "sector_eléctrico", "Ecuador"],
+    },
+    {
+        "id": "res_arcernnr_019_2021_ec", "tipo": "Resolución ARCERNNR", "numero": "019/21", "año": 2021,
+        "nombre": "Resolución ARCERNNR Nro. 019/21",
+        "titulo": "Regulación para la generación fotovoltaica y renovable en Ecuador",
+        "entidad": "ARCERNNR", "fecha": "2021-08-30", "estado": "Vigente",
+        "url": "https://www.regulacionelectrica.gob.ec",
+        "resumen": "Establece los procedimientos para la conexión de generación fotovoltaica distribuida. Define tarifa de excedentes (net billing). Límites: hasta 1MW para usuarios regulados y hasta 10MW para no regulados.",
+        "articulos_clave": [
+            {"articulo": "Art. 4", "tema": "Límites de potencia para autogeneración"},
+            {"articulo": "Art. 8", "tema": "Tarifa de excedentes — net billing"},
+            {"articulo": "Art. 12", "tema": "Procedimiento de conexión a la red"},
+        ],
+        "aplica_a": ["PPA", "EPC", "Autogeneración", "GD"],
+        "tags": ["ARCERNNR", "fotovoltaico", "net_billing", "GD", "Ecuador"],
+    },
+    {
+        "id": "plan_maestro_ec", "tipo": "Plan Nacional", "numero": "PME 2031", "año": 2023,
+        "nombre": "Plan Maestro de Electricidad 2031",
+        "titulo": "Planificación de la expansión del sistema eléctrico ecuatoriano",
+        "entidad": "Ministerio de Energía y Minas Ecuador", "fecha": "2023-06-01", "estado": "Vigente",
+        "url": "https://www.energiayrecursosnaturales.gob.ec",
+        "resumen": "Planificación de expansión de generación y transmisión al 2031. Meta: 80% de generación renovable. Incluye proyectos solares y eólicos a gran escala. Define prioridades de inversión en FNCER.",
+        "articulos_clave": [
+            {"articulo": "Cap. 4", "tema": "Expansión de generación renovable"},
+            {"articulo": "Cap. 7", "tema": "Proyectos solares y eólicos prioritarios"},
+        ],
+        "aplica_a": ["PPA", "EPC"],
+        "tags": ["PME", "planificación", "renovables", "Ecuador"],
+    },
+    {
+        "id": "contrato_concesion_ec", "tipo": "Reglamento", "numero": "Reg. 1274", "año": 2020,
+        "nombre": "Reglamento para Contratos de Concesión de Energía Renovable",
+        "titulo": "Marco contractual para concesiones de generación renovable en Ecuador",
+        "entidad": "ARCERNNR", "fecha": "2020-11-15", "estado": "Vigente",
+        "url": "https://www.regulacionelectrica.gob.ec",
+        "resumen": "Define las condiciones para contratos de concesión de proyectos de generación con FNCER. Establece garantías, plazos (hasta 20 años), indexación tarifaria y condiciones de terminación.",
+        "articulos_clave": [
+            {"articulo": "Art. 5", "tema": "Plazos de concesión (hasta 20 años)"},
+            {"articulo": "Art. 9", "tema": "Garantías de cumplimiento"},
+            {"articulo": "Art. 15", "tema": "Indexación tarifaria"},
+        ],
+        "aplica_a": ["PPA", "SHA"],
+        "tags": ["concesión", "renovables", "contratos", "Ecuador"],
+    },
+]
+
+NORMATIVA_MEXICO: List[Dict[str, Any]] = [
+    {
+        "id": "lte_2015_mx", "tipo": "Ley", "numero": "LTE", "año": 2015,
+        "nombre": "Ley de Transición Energética (LTE)",
+        "titulo": "Marco para el desarrollo de energías limpias en México",
+        "entidad": "Congreso de la Unión", "fecha": "2015-12-24", "estado": "Vigente",
+        "url": "https://www.dof.gob.mx",
+        "resumen": "Establece metas de energías limpias: 35% al 2024, 43% al 2030. Define los certificados de energías limpias (CEL). Regula la generación limpia distribuida y los contratos de cobertura eléctrica. SENER como ente rector.",
+        "articulos_clave": [
+            {"articulo": "Art. 3", "tema": "Definiciones de energía limpia y renovable"},
+            {"articulo": "Art. 16", "tema": "Certificados de Energías Limpias (CEL)"},
+            {"articulo": "Art. 22", "tema": "Generación limpia distribuida"},
+        ],
+        "aplica_a": ["PPA", "EPC", "Tax Partnership"],
+        "tags": ["LTE", "CEL", "transición_energética", "México"],
+    },
+    {
+        "id": "cre_contrato_cobertura_mx", "tipo": "Resolución CRE", "numero": "RES/203/2022", "año": 2022,
+        "nombre": "Resolución CRE RES/203/2022",
+        "titulo": "Contratos de cobertura eléctrica y PPA en mercado eléctrico mayorista",
+        "entidad": "Comisión Reguladora de Energía (CRE)", "fecha": "2022-03-10", "estado": "Vigente",
+        "url": "https://www.gob.mx/cre",
+        "resumen": "Regula los contratos de cobertura eléctrica (equivalente al PPA en el mercado mayorista). Define las condiciones de precio, plazo, garantías financieras y procedimiento de registro ante el CENACE. Plazo máximo: 25 años.",
+        "articulos_clave": [
+            {"articulo": "Art. 5", "tema": "Condiciones de precio y plazo"},
+            {"articulo": "Art. 11", "tema": "Garantías financieras requeridas"},
+            {"articulo": "Art. 18", "tema": "Registro de contratos ante el CENACE"},
+        ],
+        "aplica_a": ["PPA", "SHA"],
+        "tags": ["CRE", "PPA", "cobertura_eléctrica", "CENACE", "México"],
+    },
+    {
+        "id": "gdbt_cfe_mx", "tipo": "Tarifa", "numero": "GDBT", "año": 2023,
+        "nombre": "Tarifa GDBT — Generación Distribuida Baja Tensión",
+        "titulo": "Esquema de generación distribuida y net metering en México",
+        "entidad": "CFE / SENER", "fecha": "2023-01-01", "estado": "Vigente",
+        "url": "https://www.cfe.mx",
+        "resumen": "Regula la generación distribuida hasta 500kW en baja tensión. Define el esquema de medición neta (net metering) con créditos de energía. Contratos de interconexión de hasta 10 años con CFE. Aplica para autoconsumo con excedentes.",
+        "articulos_clave": [
+            {"articulo": "Cláusula 3", "tema": "Límite de 500kW para GDBT"},
+            {"articulo": "Cláusula 7", "tema": "Medición neta y créditos de energía"},
+            {"articulo": "Cláusula 12", "tema": "Contrato de interconexión — plazo"},
+        ],
+        "aplica_a": ["EPC", "O&M", "Autogeneración"],
+        "tags": ["CFE", "net_metering", "GD", "México"],
+    },
+    {
+        "id": "res_cenace_mx", "tipo": "Resolución CENACE", "numero": "DIR-001/2023", "año": 2023,
+        "nombre": "Directiva CENACE DIR-001/2023",
+        "titulo": "Operación del mercado eléctrico mayorista para generadores renovables",
+        "entidad": "CENACE", "fecha": "2023-05-20", "estado": "Vigente",
+        "url": "https://www.cenace.gob.mx",
+        "resumen": "Establece las reglas de participación de generadores renovables en el mercado spot. Define los perfiles de generación esperada, penalidades por desvíos y el tratamiento de la energía en el mercado de balance.",
+        "articulos_clave": [
+            {"articulo": "Cap. 3", "tema": "Perfiles de generación esperada"},
+            {"articulo": "Cap. 5", "tema": "Penalidades por desvíos de generación"},
+        ],
+        "aplica_a": ["PPA", "EPC"],
+        "tags": ["CENACE", "mercado_mayorista", "renovables", "México"],
+    },
+]
+
+NORMATIVA_BRASIL: List[Dict[str, Any]] = [
+    {
+        "id": "lei_14300_2022_br", "tipo": "Lei", "numero": "14.300", "año": 2022,
+        "nombre": "Lei 14.300 de 2022",
+        "titulo": "Marco Legal da Micro e Minigeração Distribuída",
+        "entidad": "Congresso Nacional", "fecha": "2022-01-06", "estado": "Vigente",
+        "url": "https://www.planalto.gov.br",
+        "resumen": "Consolida o marco regulatório da geração distribuída no Brasil. Define micro (até 75kW) e minigeração (75kW a 5MW). Estabelece o sistema de compensação de energia (net metering avançado). Garante direitos dos consumidores-geradores. Prazo de transição até 2045.",
+        "articulos_clave": [
+            {"articulo": "Art. 2", "tema": "Definições de micro e minigeração"},
+            {"articulo": "Art. 7", "tema": "Sistema de compensação de energia elétrica"},
+            {"articulo": "Art. 15", "tema": "Geração compartilhada e autoconsumo remoto"},
+        ],
+        "aplica_a": ["PPA", "EPC", "O&M", "Autogeneração"],
+        "tags": ["marco_legal", "GD", "net_metering", "minigeração", "Brasil"],
+    },
+    {
+        "id": "ren_aneel_1000_2021_br", "tipo": "Resolução ANEEL", "numero": "1000", "año": 2021,
+        "nombre": "Resolução Normativa ANEEL 1000/2021",
+        "titulo": "Condições gerais de fornecimento de energia elétrica",
+        "entidad": "ANEEL", "fecha": "2021-12-07", "estado": "Vigente",
+        "url": "https://www.aneel.gov.br",
+        "resumen": "Consolida as regras de acesso e conexão ao sistema de distribuição. Define procedimentos para geração distribuída, prazos de conexão e requisitos técnicos. Estabelece penalidades para distribuidoras que atrasem conexões de GD.",
+        "articulos_clave": [
+            {"articulo": "Art. 185", "tema": "Acesso de micro e minigeração à rede"},
+            {"articulo": "Art. 192", "tema": "Prazo máximo de conexão (65 dias)"},
+            {"articulo": "Art. 201", "tema": "Requisitos técnicos de medição"},
+        ],
+        "aplica_a": ["EPC", "O&M", "Autogeneração"],
+        "tags": ["ANEEL", "GD", "conexão", "distribuição", "Brasil"],
+    },
+    {
+        "id": "ppa_mercado_livre_br", "tipo": "Resolução ANEEL", "numero": "876", "año": 2020,
+        "nombre": "Resolução ANEEL 876/2020 — Mercado Livre",
+        "titulo": "Contratos de compra de energia no Ambiente de Contratação Livre (ACL)",
+        "entidad": "ANEEL", "fecha": "2020-03-11", "estado": "Vigente",
+        "url": "https://www.aneel.gov.br",
+        "resumen": "Regula os contratos bilaterais de energia no mercado livre (ACL). Define condições para PPAs de longo prazo entre geradores e consumidores livres. Prazo mínimo: 1 ano. Registro obrigatório na CCEE.",
+        "articulos_clave": [
+            {"articulo": "Art. 3", "tema": "Tipos de contratos no ACL"},
+            {"articulo": "Art. 8", "tema": "Prazo e condições dos contratos PPA"},
+            {"articulo": "Art. 14", "tema": "Registro obrigatório na CCEE"},
+        ],
+        "aplica_a": ["PPA", "SHA"],
+        "tags": ["PPA", "ACL", "mercado_livre", "CCEE", "Brasil"],
+    },
+    {
+        "id": "ccee_regras_br", "tipo": "Regras CCEE", "numero": "REH 2.166", "año": 2023,
+        "nombre": "Regras de Comercialização CCEE — REH 2.166/2023",
+        "titulo": "Regras do mercado de comercialização de energia elétrica",
+        "entidad": "CCEE", "fecha": "2023-09-15", "estado": "Vigente",
+        "url": "https://www.ccee.org.br",
+        "resumen": "Define as regras de liquidação financeira do mercado spot (PLD). Estabelece procedimentos de medição e apuração. Regula a contabilização de contratos de energia e penalidades por exposição involuntária ao spot.",
+        "articulos_clave": [
+            {"articulo": "Cap. 4", "tema": "Liquidação financeira e PLD"},
+            {"articulo": "Cap. 7", "tema": "Apuração e contabilização de contratos"},
+        ],
+        "aplica_a": ["PPA"],
+        "tags": ["CCEE", "PLD", "mercado_spot", "liquidação", "Brasil"],
+    },
+]
+
+# Novedades por país
+NOVEDADES_COLOMBIA = NOVEDADES  # alias para compatibilidad
+
+NOVEDADES_ECUADOR: List[Dict[str, Any]] = [
+    {
+        "fecha": "2025-03-15", "entidad": "ARCERNNR", "pais": "Ecuador",
+        "titulo": "ARCERNNR amplía límite de generación distribuida a 2MW",
+        "resumen": "La nueva regulación eleva el límite de potencia para generación fotovoltaica distribuida de 1MW a 2MW para usuarios no regulados, facilitando proyectos industriales.",
+        "impacto": "alto",
+        "impacto_unergy": "Abre oportunidades para proyectos industriales solares en Ecuador. Revisar contratos EPC y PPA para actualizar límites de potencia.",
+        "url": "https://www.regulacionelectrica.gob.ec",
+    },
+    {
+        "fecha": "2024-11-20", "entidad": "Ministerio de Energía", "pais": "Ecuador",
+        "titulo": "Plan de expansión renovable 2025-2030 — Ecuador suma 3GW de solar",
+        "resumen": "Ecuador anuncia plan para agregar 3GW de energía solar al 2030, con licitaciones anuales de 500MW. Se establecen contratos PPA de 20 años con el Estado.",
+        "impacto": "alto",
+        "impacto_unergy": "Oportunidad significativa para participar en licitaciones. Preparar propuestas EPC y PPA para el mercado ecuatoriano.",
+        "url": "https://www.energiayrecursosnaturales.gob.ec",
+    },
+    {
+        "fecha": "2024-08-10", "entidad": "ARCERNNR", "pais": "Ecuador",
+        "titulo": "Nueva tarifa de excedentes (net billing) actualizada",
+        "resumen": "ARCERNNR actualiza la tarifa de remuneración de excedentes fotovoltaicos. Se adopta el modelo de net billing con precio horario del mercado, reemplazando el precio fijo anterior.",
+        "impacto": "medio",
+        "impacto_unergy": "Revisar modelos financieros de proyectos con autoconsumo y excedentes en Ecuador.",
+        "url": "https://www.regulacionelectrica.gob.ec",
+    },
+]
+
+NOVEDADES_MEXICO: List[Dict[str, Any]] = [
+    {
+        "fecha": "2025-02-28", "entidad": "CRE", "pais": "México",
+        "titulo": "CRE aprueba nuevos contratos de cobertura para renovables — plazo hasta 25 años",
+        "resumen": "La CRE modifica las bases para contratos de cobertura eléctrica, extendiendo el plazo máximo a 25 años y simplificando el proceso de registro ante el CENACE para proyectos renovables.",
+        "impacto": "alto",
+        "impacto_unergy": "Mayor certeza para estructurar PPAs de largo plazo en México. Actualizar plantillas contractuales.",
+        "url": "https://www.gob.mx/cre",
+    },
+    {
+        "fecha": "2024-12-05", "entidad": "SENER", "pais": "México",
+        "titulo": "SENER publica plan de expansión solar 2025 — 8GW de nueva capacidad",
+        "resumen": "La Secretaría de Energía anuncia convocatoria para 8GW de energía solar distribuida entre 2025 y 2027. Se priorizan proyectos en estados del norte del país.",
+        "impacto": "alto",
+        "impacto_unergy": "Oportunidad de entrada al mercado mexicano. Analizar viabilidad de proyectos EPC en estados prioritarios.",
+        "url": "https://www.gob.mx/sener",
+    },
+    {
+        "fecha": "2024-09-18", "entidad": "CFE", "pais": "México",
+        "titulo": "CFE actualiza tarifas de interconexión para generación distribuida",
+        "resumen": "CFE publica actualización de las tarifas GDBT y GDMTO para generación distribuida. Se incluyen nuevas condiciones para proyectos de almacenamiento con baterías (BESS).",
+        "impacto": "medio",
+        "impacto_unergy": "Revisar proyecciones financieras para proyectos GD en México. Explorar oportunidades con BESS.",
+        "url": "https://www.cfe.mx",
+    },
+]
+
+NOVEDADES_BRASIL: List[Dict[str, Any]] = [
+    {
+        "fecha": "2025-03-01", "entidad": "ANEEL", "pais": "Brasil",
+        "titulo": "ANEEL reduce prazo de conexão de minigeração para 30 dias",
+        "resumen": "Nueva regulación de ANEEL establece que las distribuidoras deben conectar proyectos de minigeração distribuída en máximo 30 días (antes 65 días). Se incluyen multas automáticas por incumplimiento.",
+        "impacto": "alto",
+        "impacto_unergy": "Mejora el cronograma de proyectos EPC en Brasil. Actualizar planes de implementación.",
+        "url": "https://www.aneel.gov.br",
+    },
+    {
+        "fecha": "2025-01-15", "entidad": "CCEE", "pais": "Brasil",
+        "titulo": "CCEE abre mercado livre para consumidores acima de 500kW",
+        "resumen": "La CCEE amplía el acceso al mercado libre de energía para consumidores con demanda superior a 500kW (antes 1MW). Abre el mercado a ~30.000 nuevos potenciales compradores de PPAs renovables.",
+        "impacto": "alto",
+        "impacto_unergy": "Expansión significativa del mercado PPA en Brasil. Oportunidad para estructurar contratos con nuevos clientes industriales.",
+        "url": "https://www.ccee.org.br",
+    },
+    {
+        "fecha": "2024-10-22", "entidad": "ANEEL", "pais": "Brasil",
+        "titulo": "Marco Legal GD (Lei 14.300) — regulamentação completa em vigor",
+        "resumen": "Entra en vigor la reglamentación completa de la Ley 14.300/2022. Se confirman las regras de compensación de energía hasta 2045 y los procedimientos para geração compartilhada.",
+        "impacto": "medio",
+        "impacto_unergy": "Certeza jurídica para proyectos GD en Brasil. Marco estable para estructurar PPAs de largo plazo.",
+        "url": "https://www.aneel.gov.br",
+    },
+]
+
+# Mapa de acceso centralizado por país
+NORMATIVA_POR_PAIS = {
+    "🇨🇴 Colombia": NORMATIVA,
+    "🇪🇨 Ecuador":  NORMATIVA_ECUADOR,
+    "🇲🇽 México":   NORMATIVA_MEXICO,
+    "🇧🇷 Brasil":   NORMATIVA_BRASIL,
+}
+NOVEDADES_POR_PAIS = {
+    "🇨🇴 Colombia": NOVEDADES,
+    "🇪🇨 Ecuador":  NOVEDADES_ECUADOR,
+    "🇲🇽 México":   NOVEDADES_MEXICO,
+    "🇧🇷 Brasil":   NOVEDADES_BRASIL,
+}
+
+
 def get_normativa_for_contract_type(contract_type: str) -> List[Dict[str, Any]]:
     """Filtra la normativa relevante para un tipo de contrato dado."""
     ct = contract_type.upper()
