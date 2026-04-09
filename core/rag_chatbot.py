@@ -1,13 +1,22 @@
 import os
 import logging
 
-# Deshabilitar telemetría de ChromaDB (evita error de posthog capture())
+# Deshabilitar telemetría de ChromaDB — debe ir antes de cualquier import de chromadb.
+# app.py también lo setea al inicio, pero lo repetimos aquí como seguro extra.
 os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")
+os.environ.setdefault("CHROMA_TELEMETRY", "False")
 
 from langchain_core.embeddings import Embeddings as BaseEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
 from typing import List, Dict, Tuple, Optional, Any
+
+# Settings de ChromaDB sin telemetría — se pasan al cliente directamente
+try:
+    from chromadb.config import Settings as _ChromaSettings
+    _CHROMA_SETTINGS = _ChromaSettings(anonymized_telemetry=False)
+except Exception:
+    _CHROMA_SETTINGS = None
 
 _log = logging.getLogger("pactora")
 
@@ -52,10 +61,13 @@ class RAGChatbot:
     def _initialize_vectorstore(self):
         if self.embeddings and os.path.exists(self.persist_directory):
             try:
-                self.vectorstore = Chroma(
+                kwargs = dict(
                     persist_directory=self.persist_directory,
-                    embedding_function=self.embeddings
+                    embedding_function=self.embeddings,
                 )
+                if _CHROMA_SETTINGS is not None:
+                    kwargs["client_settings"] = _CHROMA_SETTINGS
+                self.vectorstore = Chroma(**kwargs)
                 try:
                     all_docs = self.vectorstore.get(include=["metadatas"])
                     sources = {m.get("source", "") for m in all_docs.get("metadatas", []) if m}
@@ -89,11 +101,14 @@ class RAGChatbot:
             if not all_splits:
                 return False, "No se extrajo texto valido de los documentos."
             if self.vectorstore is None:
-                self.vectorstore = Chroma.from_documents(
+                from_kwargs = dict(
                     documents=all_splits,
                     embedding=self.embeddings,
-                    persist_directory=self.persist_directory
+                    persist_directory=self.persist_directory,
                 )
+                if _CHROMA_SETTINGS is not None:
+                    from_kwargs["client_settings"] = _CHROMA_SETTINGS
+                self.vectorstore = Chroma.from_documents(**from_kwargs)
             else:
                 self.vectorstore.add_documents(all_splits)
             return True, f"{len(documents_list)} documento(s) indexado(s) correctamente."

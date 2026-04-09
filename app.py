@@ -6,6 +6,11 @@ import sys
 # También aplica a onnxruntime que usa los mismos descriptors.
 os.environ.setdefault("PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION", "python")
 
+# Fix: ChromaDB telemetry usa posthog.capture() con firma incompatible → error en logs.
+# Debe setearse ANTES de cualquier import de chromadb (incluyendo imports transitivos).
+os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")
+os.environ.setdefault("CHROMA_TELEMETRY", "False")
+
 # Fix: Python 3.14 PEP 649 breaks pydantic v1 metaclass annotation reading.
 if sys.version_info >= (3, 14):
     import pydantic.v1.main as _pv1m
