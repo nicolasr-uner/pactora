@@ -33,7 +33,30 @@ if stats["total_docs"] == 0:
         '</div>',
         unsafe_allow_html=True,
     )
-    st.warning("Sin contratos indexados. Ve a **Ajustes** para cargar documentos.", icon="📄")
+
+    # Distinguir: ¿indexación en curso (metadata > 0) o genuinamente sin contratos?
+    try:
+        from utils.indexing import _load_index_metadata
+        _meta = _load_index_metadata()
+        _n_meta = len(_meta)
+    except Exception:
+        _meta, _n_meta = {}, 0
+
+    if _n_meta > 0:
+        # ChromaDB vacío pero metadata dice que hay docs → background thread aún indexando
+        st.info(
+            f"⏳ **Cargando {_n_meta} contrato(s) desde Drive** en segundo plano… "
+            f"Haz clic en **Actualizar** cuando el proceso termine.",
+            icon="🔄",
+        )
+        _r_col, _ = st.columns([1, 3])
+        with _r_col:
+            if st.button("🔄 Actualizar", type="primary", key="btn_refresh_chatbot"):
+                st.rerun()
+    else:
+        # Sin contratos reales
+        st.warning("Sin contratos indexados. Ve a **Ajustes** para cargar documentos.", icon="📄")
+
     st.markdown("---")
     col1, col2, col3 = st.columns(3)
     for col, icon, title, desc in [

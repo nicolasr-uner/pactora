@@ -782,8 +782,95 @@ with tab_editor:
             }
             st.toast(f"Borrador '{draft_fn}' cargado desde Plantillas.", icon="✅")
 
+    # ── Cargar desde contratos indexados ──────────────────────────────────────
+    def _load_text_from_registry(reg: dict) -> str | None:
+        """Descarga el texto de un contrato indexado: Drive si hay drive_id, ChromaDB si no."""
+        drive_id = reg.get("drive_id", "")
+        source   = reg.get("source", "")
+
+        if drive_id:
+            try:
+                from utils.auth_helper import get_drive_service_sa
+                from googleapiclient.http import MediaIoBaseDownload
+                from utils.file_parser import extract_text_from_file
+
+                service = get_drive_service_sa()
+                if service:
+                    buf = io.BytesIO()
+                    dl  = MediaIoBaseDownload(
+                        buf, service.files().get_media(fileId=drive_id, supportsAllDrives=True)
+                    )
+                    done = False
+                    while not done:
+                        _, done = dl.next_chunk()
+                    buf.seek(0)
+                    text = extract_text_from_file(buf, source)
+                    if text and not text.startswith("Error"):
+                        return text
+            except Exception as _e:
+                st.warning(f"No se pudo descargar desde Drive: {_e}. Reconstruyendo desde ChromaDB…")
+
+        # Fallback: reconstruir desde chunks de ChromaDB
+        try:
+            chatbot = st.session_state.chatbot
+            if chatbot and chatbot.vectorstore:
+                data = chatbot.vectorstore.get(
+                    where={"source": source},
+                    include=["documents"],
+                )
+                chunks = data.get("documents", [])
+                if chunks:
+                    return "\n\n".join(chunks)
+        except Exception:
+            pass
+        return None
+
+    _registry = []
+    try:
+        _registry = st.session_state.chatbot.get_contract_registry()
+    except Exception:
+        pass
+
+    if _registry:
+        _already_loaded = set(st.session_state.doc_versions.keys())
+        _available      = [r for r in _registry if r["source"] not in _already_loaded]
+        _label          = "📂 Abrir contrato indexado en el editor"
+        _expanded       = not st.session_state.doc_versions  # expandido si editor vacío
+
+        with st.expander(_label, expanded=_expanded):
+            if not _available:
+                st.caption("Todos los contratos indexados ya están cargados en el editor.")
+            else:
+                _sel_src = st.selectbox(
+                    "Selecciona un contrato indexado",
+                    [r["source"] for r in _available],
+                    key="editor_open_indexed_sel",
+                )
+                _sel_reg = next((r for r in _available if r["source"] == _sel_src), None)
+                _ic1, _ic2 = st.columns([1, 3])
+                with _ic1:
+                    if st.button("📂 Abrir en editor", type="primary", key="btn_open_indexed"):
+                        if _sel_reg:
+                            with st.spinner(f"Cargando '{_sel_src}'…"):
+                                _text = _load_text_from_registry(_sel_reg)
+                            if _text:
+                                st.session_state.doc_versions[_sel_src] = {
+                                    "original": _text, "draft": _text, "history": []
+                                }
+                                st.toast(f"'{_sel_src}' cargado en el editor.", icon="✅")
+                                st.rerun()
+                            else:
+                                st.error("No se pudo recuperar el texto del contrato.")
+                with _ic2:
+                    if _sel_reg:
+                        _ct   = _sel_reg.get("contract_type", "—")
+                        _src  = "☁️ Drive" if _sel_reg.get("drive_id") else "📦 ChromaDB"
+                        st.caption(f"Tipo: **{_ct}** · Fuente: {_src}")
+
+    st.markdown("---")
+
     if not st.session_state.doc_versions:
-        st.info("Carga un contrato en **Cargar Contrato** para comenzar a editar.")
+        st.info("Carga un contrato en **Cargar Contrato** o abre uno indexado arriba para comenzar a editar.")
     else:
         doc_sel = st.selectbox(
             "Documento a editar",
