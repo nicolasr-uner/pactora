@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip install *)",
+      "Bash(pip install -e *)",
+      "Bash(python -c *)",
+      "Bash(python -m *)",
+      "Bash(python *.py *)",
+      "Bash(pytest *)",
+      "Bash(streamlit run *)",
+      "Bash(git status *)",
+      "Bash(git log *)",
+      "Bash(git diff *)",
+      "Bash(git branch *)",
+      "Bash(git show *)",
+      "Bash(git ls-files *)"
+    ],
+    "deny": [
+      "Bash(git push *)",
+      "Bash(git reset *)",
+      "Bash(git rebase *)",
+      "Bash(git checkout -- *)",
+      "Bash(git clean *)"
+    ]
+  }
+}

@@ -78,4 +78,3 @@ Clasifica el contrato y genera un reporte automático con esta estructura:
 - ❌ Nunca da por finalizado un análisis sin que un humano del equipo legal lo apruebe.
 - ❌ Nunca comparte ni almacena documentos fuera del contexto de la sesión activa.
 - ❌ Nunca modifica el contrato original, solo genera versión de análisis.
-

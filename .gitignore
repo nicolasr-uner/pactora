@@ -20,3 +20,16 @@ __pycache__/
 *.py[cod]
 *$py.class
 *.tmp.*
+
+# Runtime data (local only)
+data/
+venv/
+
+# Git worktrees (Claude Code — rutas absolutas locales, nunca commitear)
+.claude/worktrees/
+
+# Sistema legacy de agentes (migrado a .agents/)
+.agent/
+
+# Configuración Claude específica de máquina (paths Windows, no portable)
+.claude/settings.local.json
