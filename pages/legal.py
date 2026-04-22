@@ -234,9 +234,8 @@ with tab_biblioteca:
                 st.session_state[chat_sk] = []
             doc_hist = st.session_state[chat_sk]
 
-            # Historial
-            chat_box = st.container(height=530)
-            with chat_box:
+            # Historial + streaming inline
+            with st.container(height=480):
                 if not doc_hist:
                     st.markdown(
                         '<div style="color:#aaa;text-align:center;margin-top:120px;font-size:13px;">'
@@ -247,28 +246,40 @@ with tab_biblioteca:
                     with st.chat_message(msg["role"]):
                         st.markdown(msg["content"])
 
-            # Input como form para evitar conflicto con sidebar chat_input
-            with st.form(key=f"doc_chat_form", clear_on_submit=True):
-                doc_q = st.text_input(
-                    "Pregunta", placeholder="¿Cuáles son las partes del contrato?",
-                    label_visibility="collapsed"
-                )
-                sent = st.form_submit_button("Enviar →", width="stretch")
-
-            if sent and doc_q:
-                st.session_state[chat_sk].append({"role": "user", "content": doc_q})
-                try:
-                    with st.spinner("Analizando..."):
-                        ans = st.session_state.chatbot.ask_question(
-                            doc_q,
-                            filter_metadata={"source": selected_src}
+                # Streaming inline cuando hay pregunta pendiente
+                _pending_legal = st.session_state.pop(f"legal_pending_{chat_sk}", None)
+                if _pending_legal:
+                    with st.chat_message("user"):
+                        st.markdown(_pending_legal)
+                    doc_hist.append({"role": "user", "content": _pending_legal})
+                    try:
+                        _sg, _src = st.session_state.chatbot.ask_question_stream(
+                            _pending_legal,
+                            filter_metadata={"source": selected_src},
+                            chat_history=doc_hist[:-1],
                         )
-                except Exception as _ce:
-                    ans = f"⚠️ Error: {_ce}"
-                st.session_state[chat_sk].append({"role": "assistant", "content": ans})
-                # Actualizar contexto del sidebar también
-                st.session_state["sidebar_chat_filter"] = {"source": selected_src}
-                st.session_state["sidebar_chat_title"] = selected_src
+                        with st.chat_message("assistant"):
+                            _full = st.write_stream(_sg)
+                            if _src:
+                                _footer = f"\n\n---\n*Fuente: {', '.join(_src)}*"
+                                st.markdown(_footer.strip())
+                                _full = (_full or "") + _footer
+                    except Exception as _ce:
+                        _full = f"⚠️ Error: {_ce}"
+                        with st.chat_message("assistant"):
+                            st.markdown(_full)
+                    doc_hist.append({"role": "assistant", "content": _full or ""})
+                    # Sincronizar con sidebar
+                    st.session_state["sidebar_chat_filter"] = {"source": selected_src}
+                    st.session_state["sidebar_chat_title"] = selected_src
+
+            # Input debajo del container (siempre visible)
+            _doc_q_input = st.chat_input(
+                "¿Cuáles son las partes del contrato?",
+                key=f"legal_cinput_{selected_src[:30]}",
+            )
+            if _doc_q_input:
+                st.session_state[f"legal_pending_{chat_sk}"] = _doc_q_input
                 st.rerun()
 
             if doc_hist:

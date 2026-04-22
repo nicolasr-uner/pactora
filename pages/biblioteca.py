@@ -111,7 +111,7 @@ if selected_src and selected_src in sources:
                 st.session_state[chat_sk] = []
             doc_hist = st.session_state[chat_sk]
 
-            with st.container(height=540):
+            with st.container(height=480):
                 if not doc_hist:
                     st.markdown(
                         '<div style="color:#aaa;text-align:center;margin-top:130px;font-size:13px;">'
@@ -122,19 +122,39 @@ if selected_src and selected_src in sources:
                     with st.chat_message(msg["role"]):
                         st.markdown(msg["content"])
 
-            with st.form("bib_chat_form", clear_on_submit=True):
-                doc_q = st.text_input("Pregunta", placeholder="¿Qué dice sobre...?",
-                                      label_visibility="collapsed")
-                if st.form_submit_button("Enviar →", width="stretch") and doc_q:
-                    st.session_state[chat_sk].append({"role": "user", "content": doc_q})
-                    with st.spinner("Consultando..."):
-                        answer = st.session_state.chatbot.ask_question(
+                # Streaming de respuesta inline (dentro del container para que fluya con el historial)
+                doc_q = st.session_state.get(f"bib_pending_{chat_sk}")
+                if doc_q:
+                    st.session_state.pop(f"bib_pending_{chat_sk}", None)
+                    with st.chat_message("user"):
+                        st.markdown(doc_q)
+                    doc_hist.append({"role": "user", "content": doc_q})
+                    try:
+                        stream_gen, sources = st.session_state.chatbot.ask_question_stream(
                             doc_q,
                             filter_metadata={"source": selected_src},
-                            chat_history=doc_hist,
+                            chat_history=doc_hist[:-1],
                         )
-                    st.session_state[chat_sk].append({"role": "assistant", "content": answer})
-                    st.rerun()
+                        with st.chat_message("assistant"):
+                            full_ans = st.write_stream(stream_gen)
+                            if sources:
+                                footer = f"\n\n---\n*Fuente: {', '.join(sources)}*"
+                                st.markdown(footer.strip())
+                                full_ans = (full_ans or "") + footer
+                    except Exception as exc:
+                        full_ans = f"⚠️ Error: {exc}"
+                        with st.chat_message("assistant"):
+                            st.markdown(full_ans)
+                    doc_hist.append({"role": "assistant", "content": full_ans or ""})
+
+            # Input fuera del container scrollable (aparece siempre al fondo del panel)
+            doc_q_input = st.chat_input(
+                "¿Qué dice sobre...?",
+                key=f"bib_cinput_{selected_src[:30]}",
+            )
+            if doc_q_input:
+                st.session_state[f"bib_pending_{chat_sk}"] = doc_q_input
+                st.rerun()
 
 # ══════════════════════════════════════════════════════════════════════════════
 # MODO EXPLORADOR
