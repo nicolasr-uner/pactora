@@ -365,6 +365,48 @@ NORMATIVA_ECUADOR: List[Dict[str, Any]] = [
         "aplica_a": ["PPA", "SHA"],
         "tags": ["concesión", "renovables", "contratos", "Ecuador"],
     },
+    {
+        "id": "incentivos_fncer_ec", "tipo": "Reglamento", "numero": "Acuerdo 005/2022", "año": 2022,
+        "nombre": "Acuerdo Ministerial 005 de 2022",
+        "titulo": "Incentivos tributarios y aduaneros para proyectos de energía renovable en Ecuador",
+        "entidad": "Ministerio de Energía y Minas Ecuador", "fecha": "2022-04-12", "estado": "Vigente",
+        "url": "https://www.energiayrecursosnaturales.gob.ec",
+        "resumen": "Establece exención arancelaria del 0% para equipos de generación solar, eólica e hidroeléctrica. Incluye paneles fotovoltaicos, inversores y estructuras de montaje. Vigente para importaciones hasta 2030.",
+        "articulos_clave": [
+            {"articulo": "Art. 2", "tema": "Listado de equipos exentos de aranceles"},
+            {"articulo": "Art. 6", "tema": "Procedimiento aduanero para importación"},
+        ],
+        "aplica_a": ["EPC", "PPA"],
+        "tags": ["incentivos", "aranceles", "importación", "Ecuador"],
+    },
+    {
+        "id": "eficiencia_energetica_ec", "tipo": "Ley", "numero": "Ley Ef.En.", "año": 2019,
+        "nombre": "Ley Orgánica de Eficiencia Energética",
+        "titulo": "Marco normativo de eficiencia energética y gestión de la demanda en Ecuador",
+        "entidad": "Asamblea Nacional", "fecha": "2019-01-15", "estado": "Vigente",
+        "url": "https://www.regulacionelectrica.gob.ec",
+        "resumen": "Obliga a grandes consumidores (>500kW) a implementar sistemas de gestión de energía. Fomenta la autogeneración con renovables. Establece metas de reducción del 15% de intensidad energética al 2030.",
+        "articulos_clave": [
+            {"articulo": "Art. 8", "tema": "Obligaciones para grandes consumidores"},
+            {"articulo": "Art. 14", "tema": "Fomento a la autogeneración renovable"},
+        ],
+        "aplica_a": ["O&M", "Autogeneración"],
+        "tags": ["eficiencia", "autogeneración", "gestión_energía", "Ecuador"],
+    },
+    {
+        "id": "almacenamiento_ec", "tipo": "Resolución ARCERNNR", "numero": "ARCERNNR-006/2024", "año": 2024,
+        "nombre": "Resolución ARCERNNR 006/2024 — Almacenamiento",
+        "titulo": "Regulación para sistemas de almacenamiento de energía (BESS) en Ecuador",
+        "entidad": "ARCERNNR", "fecha": "2024-03-20", "estado": "Vigente",
+        "url": "https://www.regulacionelectrica.gob.ec",
+        "resumen": "Primera regulación ecuatoriana para sistemas de almacenamiento con baterías (BESS). Define requisitos técnicos, contratos de servicios ancilares y modelo de remuneración para almacenamiento acoplado a generación renovable.",
+        "articulos_clave": [
+            {"articulo": "Cap. 2", "tema": "Requisitos técnicos BESS"},
+            {"articulo": "Cap. 5", "tema": "Servicios ancilares y remuneración"},
+        ],
+        "aplica_a": ["EPC", "O&M", "PPA"],
+        "tags": ["BESS", "almacenamiento", "ancilares", "Ecuador"],
+    },
 ]
 
 NORMATIVA_MEXICO: List[Dict[str, Any]] = [
@@ -426,6 +468,48 @@ NORMATIVA_MEXICO: List[Dict[str, Any]] = [
         ],
         "aplica_a": ["PPA", "EPC"],
         "tags": ["CENACE", "mercado_mayorista", "renovables", "México"],
+    },
+    {
+        "id": "lie_2021_mx", "tipo": "Ley", "numero": "LIE", "año": 2021,
+        "nombre": "Ley de la Industria Eléctrica (LIE) — Reforma 2021",
+        "titulo": "Regulación de la generación, transmisión y distribución de energía eléctrica",
+        "entidad": "Congreso de la Unión", "fecha": "2021-03-09", "estado": "Vigente con observaciones",
+        "url": "https://www.dof.gob.mx",
+        "resumen": "Reforma que prioriza la energía de CFE en el despacho eléctrico. Impacta el orden de despacho de plantas privadas. La Suprema Corte suspendió algunos artículos en 2022. Los contratos de cobertura (PPA privados) mantienen protección bajo TLCAN/T-MEC.",
+        "articulos_clave": [
+            {"articulo": "Art. 26", "tema": "Orden de preferencia en el despacho eléctrico"},
+            {"articulo": "Art. 53", "tema": "Contratos de cobertura — vigencia"},
+        ],
+        "aplica_a": ["PPA", "EPC"],
+        "tags": ["LIE", "despacho", "CFE", "T-MEC", "México"],
+    },
+    {
+        "id": "prodesen_2023_mx", "tipo": "Plan Nacional", "numero": "PRODESEN 2023", "año": 2023,
+        "nombre": "PRODESEN 2023-2037",
+        "titulo": "Programa de Desarrollo del Sistema Eléctrico Nacional",
+        "entidad": "SENER", "fecha": "2023-06-30", "estado": "Vigente",
+        "url": "https://www.gob.mx/sener",
+        "resumen": "Plan de expansión de infraestructura eléctrica a 15 años. Proyecta 18GW de nueva capacidad renovable. Identifica zonas prioritarias para solar y eólico. Define metas de transmisión para evacuación de renovables.",
+        "articulos_clave": [
+            {"articulo": "Cap. 3", "tema": "Expansión de generación renovable — 18GW"},
+            {"articulo": "Cap. 6", "tema": "Zonas prioritarias solar y eólico"},
+        ],
+        "aplica_a": ["EPC", "PPA"],
+        "tags": ["PRODESEN", "planificación", "expansión", "México"],
+    },
+    {
+        "id": "nom_se_001_mx", "tipo": "Reglamento", "numero": "NOM-SE-001-2024", "año": 2024,
+        "nombre": "NOM-SE-001-2024 — Instalaciones Fotovoltaicas",
+        "titulo": "Norma oficial para instalaciones fotovoltaicas conectadas a la red en México",
+        "entidad": "Secretaría de Economía / CRE", "fecha": "2024-02-15", "estado": "Vigente",
+        "url": "https://www.gob.mx/se",
+        "resumen": "Establece los requisitos técnicos y de seguridad para instalaciones fotovoltaicas conectadas a la red de distribución. Aplica a proyectos GDBT y GDMTO. Define protocolos de pruebas, etiquetado de equipos y capacitación de instaladores.",
+        "articulos_clave": [
+            {"articulo": "Secc. 4", "tema": "Requisitos técnicos de conexión"},
+            {"articulo": "Secc. 7", "tema": "Protocolos de prueba y puesta en marcha"},
+        ],
+        "aplica_a": ["EPC", "O&M"],
+        "tags": ["NOM", "fotovoltaica", "seguridad", "instalación", "México"],
     },
 ]
 
@@ -489,6 +573,51 @@ NORMATIVA_BRASIL: List[Dict[str, Any]] = [
         "aplica_a": ["PPA"],
         "tags": ["CCEE", "PLD", "mercado_spot", "liquidação", "Brasil"],
     },
+    {
+        "id": "decreto_10946_br", "tipo": "Lei", "numero": "Dec. 10.946/2022", "año": 2022,
+        "nombre": "Decreto 10.946 de 2022",
+        "titulo": "Regulamentação da Lei 14.300 — Micro e Minigeração Distribuída",
+        "entidad": "Presidência da República", "fecha": "2022-01-25", "estado": "Vigente",
+        "url": "https://www.planalto.gov.br",
+        "resumen": "Decreto que reglamenta la Ley 14.300/2022. Define procedimientos operativos para el sistema de compensación de energía, requisitos para registro en la distribuidora y condiciones para geração compartilhada en condomínios y assentamentos.",
+        "articulos_clave": [
+            {"articulo": "Art. 4", "tema": "Procedimento de registro e conexão"},
+            {"articulo": "Art. 9", "tema": "Geração compartilhada — condições"},
+            {"articulo": "Art. 15", "tema": "Prazo de transição para regras anteriores"},
+        ],
+        "aplica_a": ["EPC", "O&M", "Autogeneração"],
+        "tags": ["decreto", "GD", "registro", "geração_compartilhada", "Brasil"],
+    },
+    {
+        "id": "leilao_reserva_aneel_br", "tipo": "Resolução ANEEL", "numero": "REN 917/2022", "año": 2022,
+        "nombre": "Resolução ANEEL REN 917/2022 — Leilões de Energia",
+        "titulo": "Regras para leilões de energia de reserva com fontes renováveis",
+        "entidad": "ANEEL", "fecha": "2022-08-30", "estado": "Vigente",
+        "url": "https://www.aneel.gov.br",
+        "resumen": "Regula los leilões de reserva de capacidad con fuentes renovables (solar, eólica, biomasa). Define contratos de 20-25 años con receita fixa garantida pelo governo federal. Establece critérios de habilitação y garantías para generadores.",
+        "articulos_clave": [
+            {"articulo": "Art. 5", "tema": "Critérios de habilitação de geradores"},
+            {"articulo": "Art. 12", "tema": "Prazo e condições dos contratos de reserva"},
+            {"articulo": "Art. 18", "tema": "Garantias financeiras exigidas"},
+        ],
+        "aplica_a": ["PPA", "EPC"],
+        "tags": ["leilão", "reserva", "solar", "contrato_longo_prazo", "Brasil"],
+    },
+    {
+        "id": "hidrogenio_verde_br", "tipo": "Lei", "numero": "Lei 14.948/2024", "año": 2024,
+        "nombre": "Lei 14.948 de 2024 — Hidrogênio Verde",
+        "titulo": "Marco legal para produção e comercialização de hidrogênio de baixo carbono",
+        "entidad": "Congresso Nacional", "fecha": "2024-07-01", "estado": "Vigente",
+        "url": "https://www.planalto.gov.br",
+        "resumen": "Cria o marco legal para o hidrogênio verde e de baixo carbono no Brasil. Define certificação de origem, incentivos fiscais e zonas de processamento. Conecta diretamente com contratos de PPA de energia renovable para eletrólise.",
+        "articulos_clave": [
+            {"articulo": "Art. 3", "tema": "Definições e classificação de hidrogênio"},
+            {"articulo": "Art. 10", "tema": "Incentivos fiscais para produtores"},
+            {"articulo": "Art. 16", "tema": "Nexo com contratos PPA de energía renovável"},
+        ],
+        "aplica_a": ["PPA", "EPC"],
+        "tags": ["hidrogênio_verde", "H2", "baixo_carbono", "incentivos", "Brasil"],
+    },
 ]
 
 # Novedades por país
@@ -519,6 +648,22 @@ NOVEDADES_ECUADOR: List[Dict[str, Any]] = [
         "impacto_unergy": "Revisar modelos financieros de proyectos con autoconsumo y excedentes en Ecuador.",
         "url": "https://www.regulacionelectrica.gob.ec",
     },
+    {
+        "fecha": "2025-04-02", "entidad": "ARCERNNR", "pais": "Ecuador",
+        "titulo": "Ecuador lanza primera licitación BESS — 200 MW de almacenamiento solar+batería",
+        "resumen": "ARCERNNR convoca licitación para 200MW de sistemas de almacenamiento acoplados a solar fotovoltaico. Contratos PPA de 15 años con el Estado. Presentación de ofertas hasta agosto 2025.",
+        "impacto": "alto",
+        "impacto_unergy": "Oportunidad directa para proyectos solar+BESS. Preparar propuestas EPC y O&M para la licitación.",
+        "url": "https://www.regulacionelectrica.gob.ec",
+    },
+    {
+        "fecha": "2024-06-18", "entidad": "Ministerio de Finanzas Ecuador", "pais": "Ecuador",
+        "titulo": "Exención arancelaria extendida a inversores y baterías hasta 2028",
+        "resumen": "El Ministerio de Finanzas amplía la exención arancelaria del 0% a inversores, sistemas de monitoreo y baterías de litio para proyectos renovables. Impacto positivo en CAPEX de proyectos EPC.",
+        "impacto": "medio",
+        "impacto_unergy": "Reducción de costos de importación para proyectos EPC en Ecuador. Actualizar matrices de costos.",
+        "url": "https://www.finanzas.gob.ec",
+    },
 ]
 
 NOVEDADES_MEXICO: List[Dict[str, Any]] = [
@@ -546,6 +691,22 @@ NOVEDADES_MEXICO: List[Dict[str, Any]] = [
         "impacto_unergy": "Revisar proyecciones financieras para proyectos GD en México. Explorar oportunidades con BESS.",
         "url": "https://www.cfe.mx",
     },
+    {
+        "fecha": "2025-03-20", "entidad": "SENER / T-MEC", "pais": "México",
+        "titulo": "Paneles consultivos T-MEC: México refuerza protección a PPA privados con renovables",
+        "resumen": "Tras paneles consultivos del T-MEC por la reforma LIE, México confirma que los contratos de cobertura (PPA) con inversión extranjera mantienen protección bajo el tratado. Aplica a proyectos de EE.UU. y Canadá.",
+        "impacto": "alto",
+        "impacto_unergy": "Certeza jurídica para estructurar PPAs en México con contrapartes internacionales. Revisar cláusulas de protección de inversión.",
+        "url": "https://www.gob.mx/sener",
+    },
+    {
+        "fecha": "2024-11-10", "entidad": "CENACE", "pais": "México",
+        "titulo": "CENACE actualiza factores de pérdidas para generadores solares — impacto en ingresos PPA",
+        "resumen": "CENACE publica nuevos factores nodales de pérdidas para nodos de conexión solar. Algunos nodos del norte (Sonora, Chihuahua) presentan factores negativos que reducen el ingreso neto de generadores en el mercado spot.",
+        "impacto": "medio",
+        "impacto_unergy": "Revisar contratos PPA con cláusulas de precio nodal. Negociar coberturas contra precio negativo en nodos críticos.",
+        "url": "https://www.cenace.gob.mx",
+    },
 ]
 
 NOVEDADES_BRASIL: List[Dict[str, Any]] = [
@@ -572,6 +733,22 @@ NOVEDADES_BRASIL: List[Dict[str, Any]] = [
         "impacto": "medio",
         "impacto_unergy": "Certeza jurídica para proyectos GD en Brasil. Marco estable para estructurar PPAs de largo plazo.",
         "url": "https://www.aneel.gov.br",
+    },
+    {
+        "fecha": "2025-04-10", "entidad": "ANEEL", "pais": "Brasil",
+        "titulo": "ANEEL lança leilão solar 2025 — 3,2 GW para projetos fotovoltaicos",
+        "resumen": "ANEEL convoca leilão de energia nova com 3,2GW de capacidad solar fotovoltaica. Contratos de 20 años con precio indexado al IPCA. Resultado previsto para septiembre 2025. Proyectos a entregar entre 2027 y 2028.",
+        "impacto": "alto",
+        "impacto_unergy": "Oportunidad para proyectos EPC en Brasil. Plazo de inscripción hasta julio 2025.",
+        "url": "https://www.aneel.gov.br",
+    },
+    {
+        "fecha": "2025-02-05", "entidad": "MME Brasil", "pais": "Brasil",
+        "titulo": "Programa Nacional H2Verde — R$15bi para hidrogênio verde com energía renovable",
+        "resumen": "El Ministerio de Minas y Energía lanza programa de financiamento para H2Verde. Requiere energía 100% renovable certificada. Los proyectos deben acreditar PPAs de largo plazo con generadores certificados.",
+        "impacto": "alto",
+        "impacto_unergy": "Nuevo vector de demanda para PPAs renovables. Explorar contratos de energía para electrolizadores.",
+        "url": "https://www.gov.br/mme",
     },
 ]
 

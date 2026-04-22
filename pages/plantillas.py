@@ -5,6 +5,65 @@ import streamlit as st
 from utils.shared import apply_styles, page_header, init_session_state, api_status_banner
 from core.llm_service import LLM_AVAILABLE, generate_response
 
+
+# ─── Helper: exportar texto a DOCX profesional ────────────────────────────────
+def _text_to_docx(title: str, text: str) -> bytes:
+    """Genera un DOCX con formato profesional desde texto plano."""
+    try:
+        from docx import Document
+        from docx.shared import Pt, Cm, RGBColor
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+        doc = Document()
+
+        # Márgenes de página
+        for section in doc.sections:
+            section.left_margin   = Cm(3.0)
+            section.right_margin  = Cm(2.5)
+            section.top_margin    = Cm(2.5)
+            section.bottom_margin = Cm(2.5)
+
+        # Título centrado
+        h = doc.add_heading(title.replace(".docx", "").replace(".txt", ""), level=0)
+        h.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        for run in h.runs:
+            run.font.color.rgb = RGBColor(0x2C, 0x20, 0x39)  # Unergy dark purple
+
+        doc.add_paragraph("")  # espacio
+
+        # Procesar líneas
+        for line in text.split("\n"):
+            stripped = line.strip()
+            if not stripped:
+                doc.add_paragraph("")
+                continue
+
+            # Sección en MAYÚSCULAS (≤70 chars) → heading nivel 2
+            if stripped.isupper() and len(stripped) <= 70 and not stripped.startswith("-"):
+                h2 = doc.add_heading(stripped, level=2)
+                for run in h2.runs:
+                    run.font.color.rgb = RGBColor(0x91, 0x5B, 0xD8)  # Unergy purple
+            # Cláusula numerada: empieza con "1." o "CLÁUSULA" → heading nivel 3
+            elif (stripped[:2].rstrip(".").isdigit() or stripped.upper().startswith("CLÁUSULA")):
+                h3 = doc.add_heading(stripped, level=3)
+                for run in h3.runs:
+                    run.font.bold = True
+            # Elemento de lista
+            elif stripped.startswith("-") or stripped.startswith("•"):
+                p = doc.add_paragraph(stripped.lstrip("-•").strip(), style="List Bullet")
+                p.runs[0].font.size = Pt(11) if p.runs else None
+            else:
+                p = doc.add_paragraph(stripped)
+                p.style.font.size = Pt(11)
+
+        buf = io.BytesIO()
+        doc.save(buf)
+        buf.seek(0)
+        return buf.read()
+    except Exception:
+        # Fallback: retornar None para que el caller use .txt
+        return None
+
 apply_styles()
 init_session_state()
 page_header()
@@ -677,7 +736,7 @@ with tab_generar:
                     else:
                         st.success("Borrador generado con los campos completados.", icon="✅")
 
-                    # Mostrar texto final y opción de descargar
+                    # Mostrar texto final y opciones de descarga
                     with st.expander("📄 Borrador generado", expanded=True):
                         st.text_area(
                             "borrador_final",
@@ -685,21 +744,39 @@ with tab_generar:
                             height=400,
                             key="ta_borrador_final"
                         )
-                        nombre_salida = sel_gen.replace(".docx", f"_borrador.txt")
-                        st.download_button(
-                            "⬇ Descargar borrador",
+                        nombre_base = sel_gen.replace(".docx", "").replace(".txt", "") + "_borrador"
+
+                        dl_col1, dl_col2, dl_col3 = st.columns(3)
+
+                        # DOCX (principal)
+                        _docx_bytes = _text_to_docx(nombre_base, texto_final)
+                        if _docx_bytes:
+                            dl_col1.download_button(
+                                "⬇ Descargar DOCX",
+                                data=_docx_bytes,
+                                file_name=nombre_base + ".docx",
+                                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                width="stretch",
+                                key="dl_borrador_docx",
+                            )
+                        else:
+                            dl_col1.caption("DOCX no disponible")
+
+                        # TXT (fallback)
+                        dl_col2.download_button(
+                            "⬇ Descargar TXT",
                             data=texto_final.encode("utf-8"),
-                            file_name=nombre_salida,
+                            file_name=nombre_base + ".txt",
                             mime="text/plain",
                             width="stretch",
-                            key="dl_borrador_final"
+                            key="dl_borrador_txt",
                         )
 
-                        # Guardar en sesión para usar en Editor de Legal
-                        if st.button("📝 Abrir en Editor de Borradores", width="stretch",
-                                      key="btn_abrir_editor"):
+                        # Abrir en Editor de Legal
+                        if dl_col3.button("📝 Abrir en Editor", width="stretch",
+                                          key="btn_abrir_editor"):
                             st.session_state["draft_content"] = texto_final
-                            st.session_state["draft_filename"] = nombre_salida
+                            st.session_state["draft_filename"] = nombre_base + ".docx"
                             st.toast("Borrador enviado al Editor de Legal.", icon="✅")
 
 
@@ -735,31 +812,39 @@ with tab_nueva:
             height=300,
             key="nueva_plt_texto"
         )
-        if st.button("💾 Guardar en sesión", type="primary", width="stretch", key="btn_guardar_nueva"):
+        _save_col, _dl_col = st.columns(2)
+        if _save_col.button("💾 Guardar en sesión", type="primary", width="stretch", key="btn_guardar_nueva"):
             if nombre_nueva and texto_nueva:
                 if "plantillas_custom" not in st.session_state:
                     st.session_state.plantillas_custom = []
-                # Evitar duplicados por nombre
                 existing = next(
                     (i for i, pc in enumerate(st.session_state.plantillas_custom)
                      if pc["nombre"] == nombre_nueva), None
                 )
                 if existing is not None:
                     st.session_state.plantillas_custom[existing] = {
-                        "nombre": nombre_nueva,
-                        "tipo": tipo_nueva,
-                        "texto": texto_nueva
+                        "nombre": nombre_nueva, "tipo": tipo_nueva, "texto": texto_nueva
                     }
                     st.toast(f"Plantilla '{nombre_nueva}' actualizada.", icon="✅")
                 else:
                     st.session_state.plantillas_custom.append({
-                        "nombre": nombre_nueva,
-                        "tipo": tipo_nueva,
-                        "texto": texto_nueva
+                        "nombre": nombre_nueva, "tipo": tipo_nueva, "texto": texto_nueva
                     })
                     st.toast(f"Plantilla '{nombre_nueva}' guardada en la sesión.", icon="✅")
             else:
                 st.error("Completa el nombre y el contenido.", icon="⚠️")
+
+        if nombre_nueva and texto_nueva:
+            _docx_nueva = _text_to_docx(nombre_nueva, texto_nueva)
+            if _docx_nueva:
+                _dl_col.download_button(
+                    "⬇ Descargar DOCX",
+                    data=_docx_nueva,
+                    file_name=nombre_nueva if nombre_nueva.endswith(".docx") else nombre_nueva + ".docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    width="stretch",
+                    key="dl_nueva_docx",
+                )
 
     with col_ai:
         ai_badge = "🟢 Activo" if LLM_AVAILABLE else "⚫ Inactivo"
