@@ -668,3 +668,79 @@ def generate_response(
     except Exception as e:
         _log.error("[llm_service] generate_response falló: %s — tipo: %s", e, type(e).__name__)
         return None  # ask_question hace fallback a búsqueda semántica
+
+
+def generate_response_stream(
+    question: str,
+    context: str,
+    history: Optional[List[Dict[str, str]]] = None,
+    system_prompt: str = JUANMITA_SYSTEM_PROMPT,
+):
+    """
+    Como generate_response pero retorna un generador que hace yield de chunks de texto.
+    Usar con st.write_stream() en Streamlit para mostrar la respuesta progresivamente.
+
+    Retorna None si LLM no está disponible o si falla antes de empezar a streamear.
+    El generador interno propaga errores de quota bajando por _GEMINI_MODEL_CHAIN.
+    """
+    if not LLM_AVAILABLE:
+        return None
+
+    try:
+        from google import genai  # type: ignore
+        from google.genai import types  # type: ignore
+
+        portfolio_block = build_portfolio_context()
+        effective_system = system_prompt + portfolio_block if portfolio_block else system_prompt
+
+        contents: List[Any] = []
+        if history:
+            for msg in history[-6:]:
+                sdk_role = "user" if msg.get("role") == "user" else "model"
+                contents.append(
+                    types.Content(
+                        role=sdk_role,
+                        parts=[types.Part(text=msg.get("content", ""))],
+                    )
+                )
+
+        user_text = (
+            "CONTEXTO DE CONTRATOS RECUPERADO:\n"
+            f"{context}\n\n"
+            f"Pregunta: {question}"
+        )
+        contents.append(types.Content(role="user", parts=[types.Part(text=user_text)]))
+
+        config = types.GenerateContentConfig(system_instruction=effective_system)
+        client = genai.Client(api_key=GEMINI_API_KEY)
+
+        def _stream_gen():
+            _check_and_record_call()
+            for model in _GEMINI_MODEL_CHAIN:
+                try:
+                    for chunk in client.models.generate_content_stream(
+                        model=model,
+                        contents=contents,
+                        config=config,
+                    ):
+                        if chunk.text:
+                            yield chunk.text
+                    return  # stream completado exitosamente
+                except Exception as exc:
+                    exc_str = str(exc)
+                    is_quota = (
+                        ("429" in exc_str or "RESOURCE_EXHAUSTED" in exc_str)
+                        and "API_KEY_HTTP_REFERRER_BLOCKED" not in exc_str
+                    )
+                    if is_quota and model != _GEMINI_MODEL_CHAIN[-1]:
+                        _log.warning(
+                            "[llm_service] stream: quota agotada en %s — bajando modelo.", model
+                        )
+                        continue
+                    raise
+
+        return _stream_gen()
+
+    except Exception as e:
+        _log.error("[llm_service] generate_response_stream falló antes de iniciar: %s", e)
+        return None

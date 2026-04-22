@@ -46,13 +46,17 @@ if stats["total_docs"] == 0:
         # ChromaDB vacío pero metadata dice que hay docs → background thread aún indexando
         st.info(
             f"⏳ **Cargando {_n_meta} contrato(s) desde Drive** en segundo plano… "
-            f"Haz clic en **Actualizar** cuando el proceso termine.",
+            f"Actualizando automáticamente cada 5 s.",
             icon="🔄",
         )
         _r_col, _ = st.columns([1, 3])
         with _r_col:
-            if st.button("🔄 Actualizar", type="primary", key="btn_refresh_chatbot"):
+            if st.button("🔄 Actualizar ahora", type="primary", key="btn_refresh_chatbot"):
                 st.rerun()
+        # Auto-polling: volver a comprobar cada 5 segundos sin intervención del usuario
+        import time as _time
+        _time.sleep(5)
+        st.rerun()
     else:
         # Sin contratos reales
         st.warning("Sin contratos indexados. Ve a **Ajustes** para cargar documentos.", icon="📄")
@@ -188,33 +192,40 @@ with col_chat:
         st.session_state.jmc_pending_query = None
 
     if user_input:
-        # Agregar mensaje del usuario
+        # Últimos 6 mensajes como contexto (antes de agregar el actual)
+        history_for_llm = st.session_state.chat_history[-6:]
+
+        # Mostrar mensaje del usuario inline (ya que aún no está en el historial)
+        with st.chat_message("user"):
+            st.markdown(user_input)
         st.session_state.chat_history.append({"role": "user", "content": user_input})
 
-        # Últimos 6 mensajes como contexto (sin el que acabamos de agregar)
-        history_for_llm = st.session_state.chat_history[-7:-1]
+        # Calcular filtro combinado
+        sidebar_filter = st.session_state.get("sidebar_chat_filter")
+        final_filter = None
+        if sidebar_filter and user_filter:
+            final_filter = {"$and": [sidebar_filter, user_filter]}
+        elif sidebar_filter:
+            final_filter = sidebar_filter
+        elif user_filter:
+            final_filter = user_filter
 
-        # Llamar al chatbot
+        # Streaming de la respuesta del asistente
         try:
-            with st.spinner("Pensando…"):
-                sidebar_filter = st.session_state.get("sidebar_chat_filter")
-                
-                # Combinar el filtro de la barra lateral (si existe) con los permisos del usuario
-                final_filter = None
-                if sidebar_filter and user_filter:
-                    final_filter = {"$and": [sidebar_filter, user_filter]}
-                elif sidebar_filter:
-                    final_filter = sidebar_filter
-                elif user_filter:
-                    final_filter = user_filter
-                    
-                ans = chatbot.ask_question(
-                    user_input,
-                    filter_metadata=final_filter,
-                    chat_history=history_for_llm,
-                )
+            stream_gen, sources = chatbot.ask_question_stream(
+                user_input,
+                filter_metadata=final_filter,
+                chat_history=history_for_llm,
+            )
+            with st.chat_message("assistant"):
+                full_response = st.write_stream(stream_gen)
+                if sources:
+                    footer = f"\n\n---\n*Fuentes consultadas: {', '.join(sources)}*"
+                    st.markdown(footer.strip())
+                    full_response = (full_response or "") + footer
         except Exception as exc:
-            ans = f"⚠️ Error interno: {exc}"
+            full_response = f"⚠️ Error interno: {exc}"
+            with st.chat_message("assistant"):
+                st.markdown(full_response)
 
-        st.session_state.chat_history.append({"role": "assistant", "content": ans})
-        st.rerun()
+        st.session_state.chat_history.append({"role": "assistant", "content": full_response or ""})

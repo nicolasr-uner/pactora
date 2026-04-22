@@ -195,6 +195,59 @@ class RAGChatbot:
             response += f"\n\n---\n*Fuentes: {', '.join(sources)}*"
         return response
 
+    def ask_question_stream(
+        self,
+        question: str,
+        filter_metadata: Optional[Dict[str, Any]] = None,
+        chat_history: Optional[List[Dict[str, str]]] = None,
+    ) -> Tuple[Any, List[str]]:
+        """
+        Como ask_question pero retorna (stream_generator, sources).
+
+        stream_generator es un generador de chunks de texto para usar con
+        st.write_stream() en Streamlit, que muestra la respuesta progresivamente.
+
+        Si el streaming no está disponible (sin LLM o error), retorna un iterador
+        de un solo elemento con la respuesta completa — el caller no necesita
+        distinguir entre ambos casos.
+
+        Returns:
+            (generator, sources): sources es la lista de archivos consultados.
+            Las fuentes NO están embebidas en el generator; el caller es responsable
+            de mostrar el footer de fuentes después de consumir el generator.
+        """
+        if self.vectorstore is None:
+            return iter(["No hay contratos indexados. Ve a **Ajustes** y sube documentos para comenzar."]), []
+
+        context_text, sources = self._retrieve_context(question, filter_metadata)
+
+        if not context_text:
+            return iter(["No encontré información relacionada en los contratos indexados."]), []
+
+        if sources and sources[0].startswith("ERROR:"):
+            return iter([f"Error al consultar la base de datos: {sources[0][6:]}"]), []
+
+        # --- Modo LLM streaming (Gemini activo) ---
+        try:
+            from core.llm_service import LLM_AVAILABLE, generate_response_stream
+            if LLM_AVAILABLE:
+                stream_gen = generate_response_stream(
+                    question=question,
+                    context=context_text,
+                    history=chat_history,
+                )
+                if stream_gen is not None:
+                    return stream_gen, sources
+        except Exception as e:
+            _log.warning("[rag] generate_response_stream falló, usando fallback: %s", e)
+
+        # --- Fallback: modo búsqueda semántica (sin LLM) ---
+        # Las fuentes se embeben en el texto ya que no hay footer separado en fallback
+        response = "**Fragmentos relevantes encontrados:**\n\n" + context_text
+        if sources:
+            response += f"\n\n---\n*Fuentes: {', '.join(sources)}*"
+        return iter([response]), []  # sources ya embebidas → lista vacía para evitar footer duplicado
+
     def get_stats(self) -> Dict[str, Any]:
         if self.vectorstore is None:
             return {"total_chunks": 0, "total_docs": 0, "sources": []}
